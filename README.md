@@ -30,6 +30,8 @@ python examples/optimize_reaction.py
 python -m pip install -e labs/optical-metrology
 python examples/coat_thin_film.py
 python examples/adaptive_microscopy.py
+python -m pip install -e labs/spectroscopic-bioprocess
+python examples/optimize_bioprocess.py
 ```
 
 ```python
@@ -60,13 +62,14 @@ normalized parameters, units, provenance and visible configuration.
 | `battery` | Design pulses to identify resistance and relaxation while respecting voltage and temperature limits | Charge balance, one-RC equivalent circuit and self-heating |
 | `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
 | `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
+| `spectroscopic-bioreactor` · bioprocess package | Coordinate feed, aeration and optical induction from OD, fluorescence, Raman and oxygen measurements | Fed-batch mass balances, Monod growth, oxygen transfer, reporter response and production burden |
 | `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
 These are reference simulations with synthetic parameter priors, not device-specific twins. Their
 contracts and model documents state the approximations and failure conditions. A calibrated twin
 must name its physical counterpart, data, operating range and held-out predictive performance.
 [Reaction model](docs/reaction-lab.md) · [Optical metrology](docs/optical-metrology.md) ·
-[Reference models](docs/models.md)
+[Bioprocess spectroscopy](docs/spectroscopic-bioprocess.md) · [Reference models](docs/models.md)
 
 The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
@@ -105,6 +108,7 @@ state, random state and verifier answers remain owner-side.
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
 | `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings tested with live experimental output |
 | `sql/` | Executable relational layout, tested with runtime creation and resumption |
+| `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |

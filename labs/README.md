@@ -7,6 +7,7 @@ and research contracts without moving domain equations or dependencies into the 
 | Package | Laboratories | Scientific role |
 |---|---|---|
 | [`optical-metrology`](optical-metrology) | `thin-film`, `fluorescence-microscopy` | Fabrication endpoint selection and dose-limited scientific imaging |
+| [`spectroscopic-bioprocess`](spectroscopic-bioprocess) | `spectroscopic-bioreactor` | Fed-batch growth, optical induction and complementary process sensing |
 | [`tank example`](../examples/tank-package) | `fluid-tank` | Transient fluid balance and outlet-conductance estimation |
 
 A maintained package should provide:
@@ -23,6 +24,7 @@ Install packages beside the core:
 ```sh
 python -m pip install -e .
 python -m pip install -e labs/optical-metrology
+python -m pip install -e labs/spectroscopic-bioprocess
 python -m pip install -e examples/tank-package
 ```
 

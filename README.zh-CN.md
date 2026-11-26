@@ -27,6 +27,8 @@ python examples/optimize_reaction.py
 python -m pip install -e labs/optical-metrology
 python examples/coat_thin_film.py
 python examples/adaptive_microscopy.py
+python -m pip install -e labs/spectroscopic-bioprocess
+python examples/optimize_bioprocess.py
 ```
 
 ```python
@@ -56,12 +58,14 @@ with Lab("runs/research.sqlite") as lab:
 | `battery` 电池脉冲 | 设计脉冲辨识电阻和弛豫，并满足电压与温度限制 | 电荷平衡、一阶 RC 等效电路和自发热 |
 | `thin-film` 光子薄膜 | 依据宽带反射、干涉相位与温度选择沉积和退火终点 | 薄膜干涉、生长、孔隙率、粗糙度和热致密化 |
 | `fluorescence-microscopy` 荧光显微 | 在漂移与光漂白过程中选择焦面、视场、通道和光子剂量 | 衍射成像、探测统计和光漂白 |
+| `spectroscopic-bioreactor` 光谱生物过程 | 联合 OD、荧光、Raman 与氧读数安排进料、曝气和光诱导 | 补料培养质量平衡、Monod 生长、氧传递、报告蛋白响应和生产负担 |
 | `fluid-tank` 独立包 | 辨识出口导流能力并预测未见过的流入程序 | 体积平衡和线性液阻 |
 
 这些是带合成参数先验的参考模拟器，不是具体设备的数字孪生。研究契约和模型文档明确
 写出近似、有效条件和失败条件。真正的实物孪生必须具有明确对应物、校准数据、工作范围、
 不确定度和未参与拟合条件上的预测结果。[反应实验室](docs/reaction-lab.md) ·
-[光学计量实验室](docs/optical-metrology.md) · [模型说明](docs/models.md)
+[光学计量实验室](docs/optical-metrology.md) · [光谱生物过程](docs/spectroscopic-bioprocess.md) ·
+[模型说明](docs/models.md)
 
 [前沿实验室图谱](docs/lab-atlas.md) 给出后续建设顺序：材料合成与催化、预测生物学、
 电化学能源、半导体与光子制造、科学成像、聚变、地球系统、制造装配和量子控制。新的
@@ -86,7 +90,8 @@ synthetic-lab --db runs/agent.sqlite mcp
 `runtime.py` 管理原子操作、会话、快照与分支；`research.py` 管理跨领域研究契约；
 `models/` 管理物理演化、仪器观测和模型范围；`integrations/` 连接 MCP、Gymnasium 与
 Agent Gym；`calibration.py` 从带单位的观测建立模型配置；`labs/optical-metrology/` 提供
-独立安装的薄膜与显微实验室；`examples/` 给出完整实验；
+独立安装的薄膜与显微实验室；`labs/spectroscopic-bioprocess/` 提供补料培养与光谱观测；
+`examples/` 给出完整实验；
 `tests/` 检查守恒关系、极限、持久化、隔离和真实接口往返。
 
 `spec/` 定义公共数据结构，`packages/protocol-ts/` 和 `crates/protocol/` 分别提供
