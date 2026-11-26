@@ -14,5 +14,9 @@ dependencies = []
 thin-film = "optical_metrology.thin_film:ThinFilmBench"
 fluorescence-microscopy = "optical_metrology.microscopy:FluorescenceMicroscopy"
 
+[project.entry-points."agent_gym.tasks"]
+synthetic-thin-film-endpoint = "optical_metrology.agent_gym:make_thin_film_endpoint"
+synthetic-microscopy-focus = "optical_metrology.agent_gym:make_microscopy_focus"
+
 [tool.setuptools.packages.find]
 where = ["."]
