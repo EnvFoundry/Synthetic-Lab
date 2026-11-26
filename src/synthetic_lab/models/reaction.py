@@ -55,11 +55,7 @@ class ReactionBench(Model):
     }
     actions = {
         "set_temperature": {"setpoint": Parameter("K", 290.0, 450.0)},
-        "read": {
-            "instrument": Parameter(
-                choices=("thermometer", "spectrometer", "chromatograph")
-            )
-        },
+        "read": {"instrument": Parameter(choices=("thermometer", "spectrometer", "chromatograph"))},
         "wait": {"seconds": Parameter("s", 0.0, 7200.0)},
     }
 
@@ -135,9 +131,7 @@ class ReactionBench(Model):
             self.config["enthalpy_1"] * extent1 + self.config["enthalpy_2"] * extent2
         )
         reaction_power = reaction_heat / seconds if seconds else 0.0
-        requested = self.config["controller_gain"] * (
-            state["setpoint"] - state["temperature"]
-        )
+        requested = self.config["controller_gain"] * (state["setpoint"] - state["temperature"])
         jacket_power = max(
             -self.config["jacket_power"], min(self.config["jacket_power"], requested)
         )
@@ -169,9 +163,7 @@ class ReactionBench(Model):
             self.advance(state, params["seconds"])
         elif action == "read":
             instrument = params["instrument"]
-            duration = {"thermometer": 0.2, "spectrometer": 1.0, "chromatograph": 20.0}[
-                instrument
-            ]
+            duration = {"thermometer": 0.2, "spectrometer": 1.0, "chromatograph": 20.0}[instrument]
             self.advance(state, duration)
             state["reads"] += 1
             if instrument == "thermometer":
@@ -203,9 +195,7 @@ class ReactionBench(Model):
             )
             wavelengths = (450, 520, 610)
             noise = 0.003
-            thermal_baseline = 0.00015 * (
-                state["temperature"] - self.config["ambient"]
-            )
+            thermal_baseline = 0.00015 * (state["temperature"] - self.config["ambient"])
             values = [
                 state["spectral_baseline"]
                 + thermal_baseline

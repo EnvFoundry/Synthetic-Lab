@@ -20,9 +20,7 @@ def run_schedule(root, schedule):
         experiment.act("set_temperature", setpoint=setpoint)
         experiment.act("wait", seconds=duration)
         temperatures.append(
-            experiment.act("read", instrument="thermometer")["observations"][
-                "temperature"
-            ]["value"]
+            experiment.act("read", instrument="thermometer")["observations"]["temperature"]["value"]
         )
     observations = experiment.act("read", instrument="chromatograph")["observations"]
     return experiment, {
