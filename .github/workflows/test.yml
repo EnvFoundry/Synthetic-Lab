@@ -24,6 +24,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e ".[test,rl,agent]"
       - run: python -m pip install -e examples/tank-package
+      - run: python -m pip install -e labs/optical-metrology
       - run: python -m pip install "git+https://github.com/EnvFoundry/Verifiable-Agent-Gym.git@947d59f7af9914b8230d81c7205a89740d24802b"
       - run: ruff check src examples tests
       - run: ruff format --check src examples tests
@@ -32,4 +33,6 @@ jobs:
       - run: python examples/align_fiber.py
       - run: python examples/battery_pulse.py
       - run: python examples/optimize_reaction.py
+      - run: python examples/coat_thin_film.py
+      - run: python examples/adaptive_microscopy.py
       - run: python -m build

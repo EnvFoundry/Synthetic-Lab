@@ -26,6 +26,9 @@ cd Synthetic-Lab
 python -m pip install -e .
 python examples/open_research.py
 python examples/optimize_reaction.py
+python -m pip install -e labs/optical-metrology
+python examples/coat_thin_film.py
+python examples/adaptive_microscopy.py
 ```
 
 ```python
@@ -54,12 +57,15 @@ normalized parameters, units, provenance and visible configuration.
 | `fiber` | Find and track a drifting coupling peak; distinguish source variation from alignment loss; choose zeroing and exposure | Gaussian coupling, laser warm-up, drift and finite-range detectors |
 | `thermal` | Separate heating power from thermal contact and predict a held-out power or clamp condition | Joule heating, lumped heat capacity and thermal resistance |
 | `battery` | Design pulses to identify resistance and relaxation while respecting voltage and temperature limits | Charge balance, one-RC equivalent circuit and self-heating |
+| `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
+| `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
 | `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
 These are reference simulations with synthetic parameter priors, not device-specific twins. Their
 contracts and model documents state the approximations and failure conditions. A calibrated twin
 must name its physical counterpart, data, operating range and held-out predictive performance.
-[Reaction model](docs/reaction-lab.md) · [Reference models](docs/models.md)
+[Reaction model](docs/reaction-lab.md) · [Optical metrology](docs/optical-metrology.md) ·
+[Reference models](docs/models.md)
 
 The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
@@ -95,7 +101,8 @@ state, random state and verifier answers remain owner-side.
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
-| `examples/` | End-to-end research, alignment, pulse, reaction and learning programmes |
+| `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
+| `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
 
