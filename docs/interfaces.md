@@ -2,7 +2,7 @@
 
 ## Command line
 
-The `--db` option precedes the subcommand. Use an absolute path when an agent host starts in a different directory.
+The `--db` option precedes the subcommand. Use an absolute path when a client starts in a different directory.
 
 ```sh
 synthetic-lab --db runs/lab.sqlite list
@@ -16,12 +16,30 @@ synthetic-lab --db runs/lab.sqlite status heater
 synthetic-lab --db runs/lab.sqlite export heater runs/heater.jsonl
 ```
 
-Use unique session IDs when running these commands again, or continue an existing session. Each command emits JSON. Invalid actions return an error and leave the simulation state unchanged.
+`act` submits an operation and waits for completion. Long calculations can be submitted without
+holding the client process:
 
-`synthetic-lab --db runs/lab.sqlite serve` reads JSON requests on stdin and writes one result per line. The envelope has `id`, `method` and `params`. This is the project's line protocol. Supported methods are `catalogue`, `sessions`, `create`, `status`, `act`, `fork` and `history`.
+```sh
+synthetic-lab --db runs/lab.sqlite submit heater wait '{"seconds":3600}' \
+  --operation-id long-settle
+synthetic-lab --db runs/lab.sqlite operation heater long-settle
+synthetic-lab --db runs/lab.sqlite worker --model thermal
+```
+
+A worker can load one or several laboratory names. Operations on one session run in submission
+order; workers may process different sessions concurrently. The numerical solver runs outside the
+database write transaction. Stopping a worker before commit leaves the prior experimental state
+unchanged, and another worker can continue the queued operation.
+
+Use unique session IDs when running creation commands again, or continue an existing session. Each
+command emits JSON. Invalid actions return an error and leave the simulation state unchanged.
+
+`synthetic-lab --db runs/lab.sqlite serve` reads JSON requests on stdin and writes one result per
+line. The envelope has `id`, `method` and `params`. Supported methods are `catalogue`, `sessions`,
+`create`, `status`, `act`, `submit`, `operation`, `fork` and `history`.
 
 ```json
-{"id":1,"method":"act","params":{"session_id":"heater","action":"read","params":{},"operation_id":"read-1"}}
+{"id":1,"method":"submit","params":{"session_id":"heater","action":"wait","params":{"seconds":3600},"operation_id":"long-settle"}}
 ```
 
 ## MCP
@@ -39,9 +57,37 @@ Install `.[agent]`. Configure a stdio-compatible host with the executable and an
 }
 ```
 
-The seven tools are `laboratories`, `sessions`, `create`, `observe_configuration`, `operate`, `fork` and `history`. The catalogue describes valid action names, parameter bounds and units. `operate` requires an operation ID so that a host can retry after losing a response. MCP calls and Python calls use the same runtime. The test suite initializes a stdio client, discovers tools, creates a laboratory and acquires a measurement through this interface.
+The tools are `laboratories`, `sessions`, `create`, `observe_configuration`, `operate`,
+`submit_operation`, `operation_status`, `fork` and `history`. The catalogue describes valid action
+names, parameter bounds and units. `operate` waits for a result. `submit_operation` returns a
+pending or running operation immediately, and `operation_status` returns its current state and final
+result. Operation IDs let a host repeat a request after losing a response without applying the
+physical action twice.
 
-This configuration gives its host control over the research database. For a benchmark, provide the episode's permitted tools and keep its database with the evaluator. The `agent_gym` adapter implements that arrangement for thermal identification.
+MCP calls, CLI calls and Python calls use the same operation table. A separate worker process may
+execute operations submitted through any interface.
+
+## Python workers
+
+```python
+from synthetic_lab import Lab, Worker
+
+with Lab("runs/lab.sqlite") as lab:
+    experiment = lab.create("reaction", seed=31)
+    operation = experiment.submit(
+        "wait", seconds=1800, operation_id="reaction-stage"
+    )
+
+with Lab("runs/lab.sqlite") as lab:
+    worker = Worker(lab, models=("reaction",), worker_id="chemistry-1")
+    worker.run_once()
+    result = lab.operation(operation["session"], operation["operation_id"])
+```
+
+`Worker.serve()` processes matching operations continuously. Install each domain package in the
+worker environment that owns its solver dependencies. A microscopy worker can therefore use image
+libraries and a reaction worker can use chemistry libraries without placing both dependency sets in
+the client environment.
 
 ## Gymnasium and policy learning
 
@@ -73,9 +119,9 @@ The action is commanded voltage in V, represented as a float32 array of shape `(
 
 One step sets the supply, waits 5 simulated seconds, and measures. Including the action and read durations, it advances 5.22 s. Reward is `-((measured_temperature-target)/10)**2 - 0.001*commanded_voltage**2`. The ongoing control task has no intrinsic terminal state; its finite action budget sets `truncated=True`. Physical reachability of the requested temperature depends on the specimen's parameters. Use the public observations to adapt to a different heater.
 
-`train_control.py` compares fixed and feedback controllers. `learn_control.py` actually optimizes a feedback policy using cross-entropy search over bias and gain. It uses two training seeds, three generations of eight candidates, and five held-out seeds. It writes learned parameters and every test return to `runs/learned-control.json`. These are small simulation experiments for checking the learning path.
+`train_control.py` compares fixed and feedback controllers. `learn_control.py` optimizes a feedback policy using cross-entropy search over bias and gain. It uses two training seeds, three generations of eight candidates, and five held-out seeds. It writes learned parameters and every held-out return to `runs/learned-control.json`.
 
-For parallel sampling, construct an independent `ThermalControlEnv` for each Gymnasium vector slot. Each environment owns its database. This avoids sharing mutable specimen state or overwriting another episode on reset. Resetting a public research session would discard its history, so research sessions instead use `create` or `fork` explicitly.
+For parallel sampling, construct an independent `ThermalControlEnv` for each Gymnasium vector slot. Each environment owns its database. Public research sessions instead use `create` or `fork` explicitly so their histories remain available.
 
 ## Verifiable Agent Gym
 
@@ -85,13 +131,21 @@ Install this project and [Verifiable Agent Gym](https://github.com/EnvFoundry/Ve
 agent-gym list
 ```
 
-The task gives the agent temperature readout, optional electrical and ambient channels, adjustable voltage and waiting. It asks for thermal resistance with 0.5 K/W absolute tolerance and permits 24 actions. The task generator uses the task's split and seed to select a specimen. Its hidden reference value stays in the verifier. The test suite solves it using measurements, checks a wrong answer, and rejects an operation outside the allowed task tools.
+The task gives the agent temperature readout, optional electrical and ambient channels, adjustable voltage and waiting. It asks for thermal resistance with 0.5 K/W absolute tolerance and permits 24 actions. The task generator uses the task's split and seed to select a specimen. Its hidden reference value stays with the evaluator.
 
-Closing this environment releases its own simulation. Physical instruments remain managed by IOP. The integration has been exercised against the upstream revision pinned in `.github/workflows/test.yml`.
+Closing this environment releases its own simulation. Physical instruments remain managed by IOP.
 
 ## Observations, calibration and data export
 
-`Session.export(path)` writes an operation JSONL file with schema version 1. Each row contains the session, lineage, operation ID, action, normalized parameters, model version, simulation interval, observations and visible settings. Source labels are explicit. Latent state and random-state snapshots stay in the database. The branch's parent and source revision are available through `status`.
+`Session.export(path)` streams completed operations to JSONL in bounded batches. Each row contains
+the session, lineage, operation ID, action, normalized parameters, model identifier, simulation
+interval, observations and visible settings. Latent state and random-state snapshots stay in the
+database. `Lab.iter_history()` supports incremental consumers without loading a complete long
+experiment into memory.
+
+Large images, fields and trajectories still need an external data store rather than inline JSON.
+The operation result is the place for a compact reference, shape, units and acquisition metadata;
+the next storage layer will implement that reference without changing domain equations.
 
 Group related branches by lineage when forming dataset splits. Group empirical records by the relevant device, batch or date when measuring generalization. Data Engineering can ingest these records through a source adapter appropriate to its own record schema.
 
@@ -115,4 +169,4 @@ with Lab("runs/calibrated.sqlite") as lab:
     print(experiment.status())
 ```
 
-The example expects a user-supplied file. The fit reports an intercept, residual error and input references. Hold back measurements before fitting and test their predictions independently. Creating a new calibrated model preserves the earlier experiment. New observations from it retain `source="simulation"`, while `model_provenance` identifies the data used to configure it.
+The example expects a user-supplied file. The fit reports an intercept, residual error and input references. Hold back measurements before fitting and compare their predictions independently. Creating a new calibrated model preserves the earlier experiment. New observations from it retain `source="simulation"`, while `model_provenance` identifies the data used to configure it.
