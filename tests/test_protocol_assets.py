@@ -9,9 +9,7 @@ def test_protocol_schema_and_fixture_are_versioned_json():
     schema = json.loads((ROOT / "spec/synthetic-lab.schema.json").read_text())
     fixture = json.loads((ROOT / "spec/examples/operation-result.json").read_text())
     assert schema["$schema"].endswith("2020-12/schema")
-    assert schema["$defs"]["operationResult"]["properties"]["schema_version"] == {
-        "const": 1
-    }
+    assert schema["$defs"]["operationResult"]["properties"]["schema_version"] == {"const": 1}
     assert fixture["schema_version"] == 1
     assert fixture["end_s"] >= fixture["start_s"]
 
