@@ -339,7 +339,7 @@ class Lab:
                     FROM operations o
                     JOIN sessions s ON s.id = o.session
                     LEFT JOIN profiles p ON p.session = o.session
-                    WHERE {' AND '.join(conditions)}
+                    WHERE {" AND ".join(conditions)}
                     ORDER BY o.sequence LIMIT 1"""
         with self._transaction():
             row = self._db.execute(query, parameters).fetchone()
@@ -462,9 +462,7 @@ class Lab:
             rng = random.Random()
             rng.setstate(tuples(json.loads(task["rng"])))
             start = state["time_s"]
-            observations = model.perform(
-                state, rng, request["action"], request["parameters"]
-            )
+            observations = model.perform(state, rng, request["action"], request["parameters"])
             if state["time_s"] < start:
                 raise ValueError("A model cannot move experiment time backwards")
             result = {
@@ -494,9 +492,7 @@ class Lab:
 
     def run_next(self, *, worker_id=None, models=None, session_id=None, lease=300.0):
         worker_id = self._identifier(worker_id)
-        claimed = self._claim(
-            worker_id, models=models, session_id=session_id, lease=lease
-        )
+        claimed = self._claim(worker_id, models=models, session_id=session_id, lease=lease)
         if claimed is None:
             return None
         if "failed" in claimed:
