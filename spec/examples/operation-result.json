@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "session": "reaction-13",
+  "lineage": "reaction-13",
+  "operation_id": "read-1",
+  "revision": 3,
+  "model": "reaction",
+  "model_version": "1",
+  "source": "simulation",
+  "model_provenance": {"source": "theory"},
+  "action": "read",
+  "parameters": {"instrument": "thermometer"},
+  "start_s": 600.1,
+  "end_s": 600.3,
+  "observations": {
+    "temperature": {
+      "value": 355.2,
+      "unit": "K",
+      "noise_std": 0.08,
+      "window_s": 0.2
+    }
+  },
+  "configuration": {
+    "temperature_setpoint_k": 365.0,
+    "thermal_protection": "ready",
+    "measurement_count": 1
+  }
+}
