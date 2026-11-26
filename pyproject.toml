@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "envfoundry-synthetic-lab"
-version = "0.1.0"
-description = "Persistent physical experiment simulations for autonomous research"
+version = "0.2.0"
+description = "Persistent, physics-grounded laboratories for open-ended research"
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"

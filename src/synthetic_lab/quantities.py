@@ -2,7 +2,6 @@
 
 import math
 
-# unit -> dimension, multiplier, offset into the SI representation
 UNITS = {
     "s": ("time", 1.0, 0.0),
     "ms": ("time", 1e-3, 0.0),
@@ -25,6 +24,14 @@ UNITS = {
     "ohm": ("resistance", 1.0, 0.0),
     "Ah": ("charge", 3600.0, 0.0),
     "C": ("charge", 1.0, 0.0),
+    "L": ("volume", 1.0, 0.0),
+    "mL": ("volume", 1e-3, 0.0),
+    "mol/L": ("concentration", 1.0, 0.0),
+    "mmol/L": ("concentration", 1e-3, 0.0),
+    "J/mol": ("molar_energy", 1.0, 0.0),
+    "kJ/mol": ("molar_energy", 1e3, 0.0),
+    "W/K": ("thermal_conductance", 1.0, 0.0),
+    "1/s": ("rate", 1.0, 0.0),
 }
 
 
@@ -38,7 +45,6 @@ def number(value):
 
 
 def quantity(value, unit=None):
-    """Bare numbers use the documented unit; quantities carry value and unit."""
     if not isinstance(value, dict):
         return number(value)
     if set(value) != {"value", "unit"}:

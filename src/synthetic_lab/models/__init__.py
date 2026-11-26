@@ -4,10 +4,16 @@ from functools import lru_cache
 from importlib.metadata import entry_points
 
 from .battery import Battery
+from .contracts import CONTRACTS
 from .optics import FiberBench
+from .reaction import ReactionBench
 from .thermal import ThermalBench
 
-BUILTINS = {model.name: model for model in (FiberBench, ThermalBench, Battery)}
+MODELS = (FiberBench, ThermalBench, Battery, ReactionBench)
+for model in MODELS:
+    model.research = CONTRACTS[model.name]
+
+BUILTINS = {model.name: model for model in MODELS}
 
 
 @lru_cache(maxsize=1)
