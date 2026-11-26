@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from .quantities import quantity
+from .research import ResearchContract
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ class Model:
     actions: ClassVar[dict[str, dict[str, Parameter]]]
     defaults: ClassVar[dict] = {}
     parameters: ClassVar[dict[str, Parameter]] = {}
+    research: ClassVar[ResearchContract | None] = None
 
     def __init__(self, config=None):
         config = {} if config is None else config
@@ -74,7 +76,7 @@ class Model:
         raise NotImplementedError
 
     def describe(self):
-        return {
+        result = {
             "name": self.name,
             "model_version": self.version,
             "description": self.description,
@@ -86,3 +88,11 @@ class Model:
                 for name, fields in self.actions.items()
             },
         }
+        if self.research is not None:
+            result["research_contract"] = self.research.describe(self.actions)
+            result["capabilities"].append("research_contract")
+            result["validation"] = (
+                "model scope, invariants and limits are declared in research_contract; "
+                "no device-specific empirical calibration"
+            )
+        return result
