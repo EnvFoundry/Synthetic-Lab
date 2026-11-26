@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://envfoundry.org/synthetic-lab/protocol/v1/schema.json",
+  "title": "Synthetic Lab protocol v1",
+  "type": "object",
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "number"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/jsonValue"}},
+        {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        }
+      ]
+    },
+    "numericParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "unit", "minimum", "maximum"],
+      "properties": {
+        "type": {"const": "number"},
+        "unit": {"type": ["string", "null"]},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"}
+      }
+    },
+    "enumParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "enum"],
+      "properties": {
+        "type": {"const": "string"},
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "parameter": {
+      "oneOf": [
+        {"$ref": "#/$defs/numericParameter"},
+        {"$ref": "#/$defs/enumParameter"}
+      ]
+    },
+    "variable": {
+      "type": "object",
+      "required": ["description", "unit"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "unit": {"type": ["string", "null"]}
+      },
+      "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+    },
+    "actionSemantic": {
+      "type": "object",
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {
+          "enum": ["configure", "control", "intervention", "measurement", "wait"]
+        },
+        "description": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+    },
+    "researchContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "domains",
+        "phenomena",
+        "questions",
+        "observables",
+        "latent_variables",
+        "interventions",
+        "invariants",
+        "failure_conditions",
+        "validity",
+        "action_semantics",
+        "reference_methods",
+        "physical_counterpart",
+        "metadata"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "domains": {"$ref": "#/$defs/nonemptyStrings"},
+        "phenomena": {"$ref": "#/$defs/nonemptyStrings"},
+        "questions": {"$ref": "#/$defs/nonemptyStrings"},
+        "observables": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/variable"}
+        },
+        "latent_variables": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/variable"}
+        },
+        "interventions": {"$ref": "#/$defs/strings"},
+        "invariants": {"$ref": "#/$defs/strings"},
+        "failure_conditions": {"$ref": "#/$defs/strings"},
+        "validity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fidelity", "conditions", "limitations"],
+          "properties": {
+            "fidelity": {
+              "enum": ["analytical", "reduced-order", "surrogate", "empirical", "hybrid"]
+            },
+            "conditions": {"$ref": "#/$defs/nonemptyStrings"},
+            "limitations": {"$ref": "#/$defs/nonemptyStrings"}
+          }
+        },
+        "action_semantics": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/actionSemantic"}
+        },
+        "reference_methods": {"$ref": "#/$defs/strings"},
+        "physical_counterpart": {"type": ["string", "null"]},
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        }
+      }
+    },
+    "strings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "nonemptyStrings": {
+      "allOf": [
+        {"$ref": "#/$defs/strings"},
+        {"minItems": 1}
+      ]
+    },
+    "laboratoryDescription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "model_version",
+        "description",
+        "source",
+        "validation",
+        "capabilities",
+        "actions",
+        "research_contract"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "source": {"const": "simulation"},
+        "validation": {"type": "string", "minLength": 1},
+        "capabilities": {"$ref": "#/$defs/strings"},
+        "actions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/parameter"}
+          }
+        },
+        "research_contract": {"$ref": "#/$defs/researchContract"}
+      }
+    },
+    "operationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "session",
+        "lineage",
+        "operation_id",
+        "revision",
+        "model",
+        "model_version",
+        "source",
+        "model_provenance",
+        "action",
+        "parameters",
+        "start_s",
+        "end_s",
+        "observations",
+        "configuration"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "session": {"type": "string", "minLength": 1},
+        "lineage": {"type": "string", "minLength": 1},
+        "operation_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "model": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1},
+        "source": {"const": "simulation"},
+        "model_provenance": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        },
+        "action": {"type": "string", "minLength": 1},
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        },
+        "start_s": {"type": "number", "minimum": 0},
+        "end_s": {"type": "number", "minimum": 0},
+        "observations": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        },
+        "configuration": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        }
+      }
+    }
+  },
+  "properties": {
+    "laboratory": {"$ref": "#/$defs/laboratoryDescription"},
+    "result": {"$ref": "#/$defs/operationResult"}
+  },
+  "additionalProperties": false
+}
