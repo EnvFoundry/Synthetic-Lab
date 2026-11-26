@@ -15,7 +15,7 @@ def sharpness(image):
                 4 * image[row][column]
                 - image[row - 1][column]
                 - image[row + 1][column]
-                - imae[row][column - 1]
+                - image[row][column - 1]
                 - image[row][column + 1]
             )
             score += laplacian * laplacian
@@ -43,7 +43,7 @@ def main():
     with Lab(args.db) as lab:
         root = lab.create("fluorescence-microscopy", seed=17)
 
-        direct = root.fork ()
+        direct = root.fork()
         direct.act("illumination", power=2.0)
         direct.act("exposure", seconds=0.2)
         direct_image = camera(direct)
