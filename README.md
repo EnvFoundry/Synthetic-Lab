@@ -2,91 +2,107 @@
 
 **Persistent, physics-grounded laboratories for open-ended research.**
 
-[中文](README.zh-CN.md) · [Models](docs/models.md) · [Architecture](docs/design.md) · [Agent and RL interfaces](docs/interfaces.md) · [Contribute](CONTRIBUTING.md)
+[中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
+[Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
+[Agent and RL interfaces](docs/interfaces.md) · [Contribute](CONTRIBUTING.md)
 
-Enter with a question, operate an instrument, change the apparatus, and continue from the resulting state. Synthetic Lab gives people and AI agents the same experimental operations. A heater remembers its temperature, a battery retains its charge and polarization, and a fiber bench drifts as experiment time passes. Sessions survive process restarts and can branch at a recorded simulation state.
+Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
+wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
+an earlier state to compare interventions. Sessions retain time, hidden specimen state and random
+state across process restarts.
 
-The aim is a growing collection of useful experimental environments across science and engineering, informed by physical models, measurements and domain expertise. Researchers can contribute an independent domain package. Open research, reinforcement learning and evaluation use the same underlying laboratory.
+A laboratory now exposes both controls and a machine-readable **research contract**: the questions
+it can investigate, observables, latent variables, interventions, invariants, validity conditions,
+limitations, failure modes and reference methods. This prevents a catalogue of callable functions
+from being mistaken for a scientific environment.
 
 ## Run an experiment
 
-Python 3.11 or later. The core uses the standard library.
+Python 3.11 or later. The core runtime uses the standard library.
 
 ```sh
 git clone https://github.com/EnvFoundry/Synthetic-Lab.git
 cd Synthetic-Lab
 python -m pip install -e .
 python examples/open_research.py
+python examples/optimize_reaction.py
 ```
-
-This experiment attaches electrical and ambient-temperature measurements to a heater, estimates thermal resistance at three power settings, predicts a held-out setting, and compares two clamp conditions from a common initial state. Results and experiment records go into `runs/`.
 
 ```python
 from synthetic_lab import Lab
 
-with Lab("runs/my-lab.sqlite") as lab:
-    experiment = lab.create("thermal", seed=31)
-    experiment.act("connect", channel="electrical")
-    experiment.act("connect", channel="ambient")
-    experiment.act("supply", voltage={"value": 4000, "unit": "mV"})
-    experiment.act("wait", seconds=600, operation_id="settle-1")
-    print(experiment.act("read")["observations"])
-    print(experiment.id)
+with Lab("runs/research.sqlite") as lab:
+    experiment = lab.create("reaction", seed=13)
+    experiment.act("set_temperature", setpoint={"value": 92, "unit": "degC"})
+    experiment.act("wait", seconds=600, operation_id="stage-1")
+    spectrum = experiment.act("read", instrument="spectrometer")
     alternative = experiment.fork()
-    alternative.act("clamp", contact="loose")
+    alternative.act("set_temperature", setpoint=320)
+    print(spectrum["observations"])
 ```
 
-Reopen the database and call `lab.session(saved_id)` to continue. Repeating an action with its original operation ID returns its recorded result. Supplying `expected_revision` detects a stale decision from another client. Every observation carries its units, simulation origin, time interval, model version and operation identity.
+Reopen the database and call `lab.session(saved_id)` to continue. Reusing an operation identifier
+with the same request returns its recorded result. `expected_revision` detects decisions made
+against an old apparatus state. Every result records its model version, simulation interval,
+normalized parameters, units, provenance and visible configuration.
 
-## Available laboratories
+## Laboratories
 
-| Laboratory | Experimental questions and effects | Model basis |
+| Laboratory | Experimental problem | Model basis |
 |---|---|---|
-| `fiber` | Find and track a coupling peak, measure a reference beam, zero a meter, choose camera exposure. Includes warm-up, common source variation, drift, noise and detector clipping | Gaussian coupling and a first-order laser response |
-| `thermal` | Separate power changes from heat-transfer changes by adding measurements and changing a clamp | Electrical heating, lumped heat capacity and thermal resistance |
-| `battery` | Choose current pulses and rest periods, observe voltage recovery, temperature and protection | Charge balance and a one-RC equivalent circuit with self-heating |
-| `fluid-tank` · optional example package | Estimate an outlet conductance from inflow and level, continue or fork an experiment | Volume balance with a linear hydraulic resistance |
+| `reaction` | Select a temperature programme and measurement schedule to maximize an intermediate while separating kinetics, deactivation and thermal effects | Consecutive Arrhenius reactions, catalyst deactivation and lumped reactor heat balance |
+| `fiber` | Find and track a drifting coupling peak; distinguish source variation from alignment loss; choose zeroing and exposure | Gaussian coupling, laser warm-up, drift and finite-range detectors |
+| `thermal` | Separate heating power from thermal contact and predict a held-out power or clamp condition | Joule heating, lumped heat capacity and thermal resistance |
+| `battery` | Design pulses to identify resistance and relaxation while respecting voltage and temperature limits | Charge balance, one-RC equivalent circuit and self-heating |
+| `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
-The reference models are analytical simulations with stated approximations and synthetic parameter priors. Device-specific physical calibration is a further contribution. The battery model covers pulse response and heating; lifetime and electrochemical degradation require additional models and data. [Equations, noise models and limits](docs/models.md).
+These are reference simulations with synthetic parameter priors, not device-specific twins. Their
+contracts and model documents state the approximations and failure conditions. A calibrated twin
+must name its physical counterpart, data, operating range and held-out predictive performance.
+[Reaction model](docs/reaction-lab.md) · [Reference models](docs/models.md)
 
-```sh
-python examples/align_fiber.py
-python examples/battery_pulse.py
-python -m pip install -e examples/tank-package
-synthetic-lab --db runs/lab.sqlite list
-```
+The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
+synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
+fabrication, scientific imaging, fusion, Earth systems, manufacturing and quantum control.
+Domains should normally be independently versioned packages sharing the same runtime and contract,
+not shallow models accumulated in the core.
 
 ## Agents, learning and data
 
-| Interface | Available workflow |
+| Interface | Workflow |
 |---|---|
-| Python, CLI and JSON lines | Discover controls, create a session, operate, resume, branch and export |
-| MCP stdio | Seven tools using the same persistent runtime |
-| Gymnasium | Thermal control, deterministic seeded reset, vector environments and explicit budget truncation |
-| Verifiable Agent Gym | Independently registered thermal-identification task and an observation-based solution test |
-| JSONL and calibration | Export observable operations, fit a thermal model from settled signals and retain data references in new model profiles |
+| Python, CLI and JSON lines | Discover, create, operate, resume, branch, inspect history and export |
+| MCP stdio | The same persistent operations exposed to an agent host |
+| Gymnasium | Seeded control environments with explicit action budgets |
+| Verifiable Agent Gym | Isolated tasks whose hidden answers stay with the evaluator |
+| JSONL and calibration | Unit-bearing traces and model profiles with source references |
 
 ```sh
 python -m pip install -e '.[rl,agent]'
 synthetic-lab --db runs/agent.sqlite mcp
-# In a separate terminal
-python examples/learn_control.py
 ```
 
-The learning example optimizes a feedback policy with cross-entropy search on two training specimens and evaluates five different seeds. It saves the policy, seeds, returns and constant-controller comparison. [Connection examples and task semantics](docs/interfaces.md).
+The catalogue returned through these interfaces includes each model's action schema and research
+contract. A scored agent receives only the permitted operations and observations; latent specimen
+state, random state and verifier answers remain owner-side.
 
 ## Repository structure
 
 | Path | Responsibility |
 |---|---|
-| `src/synthetic_lab/runtime.py` | Transactional sessions, immutable operation results, snapshots, forks and export |
-| `src/synthetic_lab/models/` | Reference physics, actions, instruments and observable configuration |
-| `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym |
+| `src/synthetic_lab/runtime.py` | Atomic sessions, immutable operation results, snapshots, forks and export |
+| `src/synthetic_lab/research.py` | Cross-domain scientific contract and validation |
+| `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
+| `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
-| `examples/` | Complete research, alignment, pulse-testing, policy-learning and extension programs |
-| `tests/` | Physical relations, replay, concurrency, failures and real interface round trips |
-| `docs/` | Model assumptions, architecture, contribution boundaries and development direction |
+| `examples/` | End-to-end research, alignment, pulse, reaction and learning programmes |
+| `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
+| `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
 
-Within EnvFoundry, IOP owns real instrument execution, Optics–Photonics AI Lab provides specialized solvers, and SeedEnv prepares dependencies. Synthetic Lab owns simulated experimental state and observation generation. Gym supplies tasks and rewards. Data Engineering and AI Evaluation can consume the resulting traces through adapters. The current runtime is local Python and SQLite, accessible from a remote agent host through stdio. A shared, multi-user cloud service and device-specific digital twins are development goals. [Implementation status and roadmap](docs/roadmap.md).
+Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,
+SeedEnv prepares dependencies, Gym owns tasks and assessment, and data systems consume traces.
+Synthetic Lab owns simulated experimental state and observations. The present runtime is local
+Python and SQLite; language-neutral service boundaries are a separate platform layer rather than a
+reason to duplicate scientific models.
 
-MIT licensed. [Project charter and cross-domain requirements](docs/charter.zh-CN.md).
+MIT licensed.

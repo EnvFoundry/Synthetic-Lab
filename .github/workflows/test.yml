@@ -31,4 +31,5 @@ jobs:
       - run: python examples/open_research.py
       - run: python examples/align_fiber.py
       - run: python examples/battery_pulse.py
+      - run: python examples/optimize_reaction.py
       - run: python -m build
