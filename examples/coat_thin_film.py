@@ -11,9 +11,7 @@ CANDIDATE_SECONDS = (120.0, 180.0, 240.0)
 
 
 def spectrum(session):
-    return session.act("read", instrument="reflectometer")["observations"]["reflectance"][
-        "value"
-    ]
+    return session.act("read", instrument="reflectometer")["observations"]["reflectance"]["value"]
 
 
 def loss(values):
