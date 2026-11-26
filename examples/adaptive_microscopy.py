@@ -28,9 +28,9 @@ def camera(session):
 
 def remaining_signal(session):
     session.act("illumination", power=0.1)
-    return session.act("read", instrument="photometer")["observations"][
-        "total_fluorescence"
-    ]["value"]
+    return session.act("read", instrument="photometer")["observations"]["total_fluorescence"][
+        "value"
+    ]
 
 
 def main():
