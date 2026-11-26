@@ -95,9 +95,9 @@ def test_focus_controls_image_sharpness_and_counts_stay_in_range():
     focused_image = model.perform(focused, random.Random(11), "read", {"instrument": "camera"})[
         "image"
     ]["value"]
-    defocused_image = model.perform(
-        defocused, random.Random(11), "read", {"instrument": "camera"}
-    )["image"]["value"]
+    defocused_image = model.perform(defocused, random.Random(11), "read", {"instrument": "camera"})[
+        "image"
+    ]["value"]
     assert sharpness(focused_image) > sharpness(defocused_image)
     maximum = int(model.config["camera_max"])
     assert min(map(min, focused_image)) >= 0
@@ -112,9 +112,9 @@ def test_photon_dose_irreversibly_reduces_later_fluorescence():
     model.perform(high_dose, random.Random(3), "read", {"instrument": "camera"})
     low_dose.update(illumination_mw=0.1)
     high_dose.update(illumination_mw=0.1)
-    remaining_low = model.perform(
-        low_dose, random.Random(9), "read", {"instrument": "photometer"}
-    )["total_fluorescence"]["value"]
+    remaining_low = model.perform(low_dose, random.Random(9), "read", {"instrument": "photometer"})[
+        "total_fluorescence"
+    ]["value"]
     remaining_high = model.perform(
         high_dose, random.Random(9), "read", {"instrument": "photometer"}
     )["total_fluorescence"]["value"]
