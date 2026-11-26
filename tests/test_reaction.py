@@ -31,9 +31,7 @@ def test_mass_balance_and_nonnegative_state():
     total = experiment["a"] + experiment["b"] + experiment["c"]
     experiment["setpoint"] = 365
     model.advance(experiment, 1800)
-    assert experiment["a"] + experiment["b"] + experiment["c"] == pytest.approx(
-        total, abs=1e-12
-    )
+    assert experiment["a"] + experiment["b"] + experiment["c"] == pytest.approx(total, abs=1e-12)
     assert min(experiment[species] for species in ("a", "b", "c")) >= 0
     assert 0 <= experiment["activity"] <= 1
 
@@ -64,9 +62,7 @@ def test_measurements_share_one_evolving_latent_state():
     experiment = state(model)
     experiment["setpoint"] = 360
     model.advance(experiment, 500)
-    spectrum = model.perform(
-        experiment, random.Random(2), "read", {"instrument": "spectrometer"}
-    )
+    spectrum = model.perform(experiment, random.Random(2), "read", {"instrument": "spectrometer"})
     composition = model.perform(
         experiment, random.Random(2), "read", {"instrument": "chromatograph"}
     )
@@ -85,12 +81,8 @@ def test_runtime_hides_species_state_and_preserves_branches():
         cool.act("set_temperature", setpoint=325)
         hot.act("wait", seconds=600)
         cool.act("wait", seconds=600)
-        hot_b = hot.act("read", instrument="chromatograph")["observations"]["b"][
-            "value"
-        ]
-        cool_b = cool.act("read", instrument="chromatograph")["observations"]["b"][
-            "value"
-        ]
+        hot_b = hot.act("read", instrument="chromatograph")["observations"]["b"]["value"]
+        cool_b = cool.act("read", instrument="chromatograph")["observations"]["b"]["value"]
         assert hot_b != pytest.approx(cool_b)
         assert set(root.status()["configuration"]) == {
             "measurement_count",

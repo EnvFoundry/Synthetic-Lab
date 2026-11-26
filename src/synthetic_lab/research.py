@@ -5,9 +5,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Mapping
 
-FIDELITY_LEVELS = frozenset(
-    {"analytical", "reduced-order", "surrogate", "empirical", "hybrid"}
-)
+FIDELITY_LEVELS = frozenset({"analytical", "reduced-order", "surrogate", "empirical", "hybrid"})
 ACTION_KINDS = frozenset({"configure", "control", "intervention", "measurement", "wait"})
 
 
@@ -72,9 +70,7 @@ class ResearchContract:
         invariants = _strings("invariants", self.invariants, allow_empty=True)
         validity = _strings("validity_conditions", self.validity_conditions)
         limitations = _strings("limitations", self.limitations)
-        failures = _strings(
-            "failure_conditions", self.failure_conditions, allow_empty=True
-        )
+        failures = _strings("failure_conditions", self.failure_conditions, allow_empty=True)
         if isinstance(self.reference_methods, (str, bytes)):
             raise ValueError("reference_methods must be a sequence of strings")
         references = tuple(self.reference_methods)
@@ -89,8 +85,7 @@ class ResearchContract:
             missing = sorted(action_names - set(self.action_semantics))
             extra = sorted(set(self.action_semantics) - action_names)
             raise ValueError(
-                "Action semantics must cover every action; "
-                f"missing={missing}, extra={extra}"
+                f"Action semantics must cover every action; missing={missing}, extra={extra}"
             )
         semantics = {}
         for action, specification in self.action_semantics.items():
@@ -106,8 +101,7 @@ class ResearchContract:
                 raise ValueError(f"action_semantics.{action} requires a description")
             semantics[action] = dict(specification)
         if self.physical_counterpart is not None and (
-            not isinstance(self.physical_counterpart, str)
-            or not self.physical_counterpart.strip()
+            not isinstance(self.physical_counterpart, str) or not self.physical_counterpart.strip()
         ):
             raise ValueError("physical_counterpart must be a nonempty string or null")
         if not isinstance(self.metadata, Mapping):
