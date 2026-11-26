@@ -2,9 +2,8 @@ import math
 import random
 
 import pytest
-
 from optical_metrology.microscopy import FluorescenceMicroscopy
-from optical_metrology.thin_film import ThinFilmBench, WAVELENGTHS_NM
+from optical_metrology.thin_film import WAVELENGTHS_NM, ThinFilmBench
 
 
 def sharpness(image):
@@ -16,7 +15,7 @@ def sharpness(image):
                 - image[row - 1][column]
                 - image[row + 1][column]
                 - image[row][column - 1]
-                - imae[row][column + 1]
+                - image[row][column + 1]
             )
             total += laplacian * laplacian
     return total
