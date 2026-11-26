@@ -1,4 +1,6 @@
-use synthetic_lab_protocol::{OperationResult, PROTOCOL_VERSION};
+use synthetic_lab_protocol::{
+    ArtifactReference, OperationResult, PROTOCOL_VERSION,
+};
 
 #[test]
 fn parses_and_round_trips_protocol_fixture() {
@@ -13,6 +15,16 @@ fn parses_and_round_trips_protocol_fixture() {
     let encoded = serde_json::to_string(&result).expect("result should serialize");
     let decoded: OperationResult = serde_json::from_str(&encoded).expect("round trip should parse");
     assert_eq!(decoded, result);
+}
+
+#[test]
+fn parses_external_artifact_reference() {
+    let source = include_str!("../../../spec/examples/artifact-reference.json");
+    let reference: ArtifactReference = serde_json::from_str(source).expect("fixture should parse");
+    reference
+        .validate()
+        .expect("fixture should contain a coherent artifact URI");
+    assert_eq!(reference.artifact.size_bytes, 4823);
 }
 
 #[test]

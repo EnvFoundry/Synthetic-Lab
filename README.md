@@ -5,7 +5,7 @@
 [中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
 [Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
 [Agent and RL interfaces](docs/interfaces.md) · [Language interfaces](docs/platform.md) ·
-[Contribute](CONTRIBUTING.md)
+[External data](docs/artifacts.md) · [Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
 wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
@@ -71,6 +71,8 @@ process without holding the database write lock. Operations on one session remai
 different sessions can run concurrently. Workers load only the laboratories installed in their own
 environment.
 
+Large images, spectra, fields and trajectories are stored beside the experiment database. Operation records keep compact references, units, shape, axes and acquisition metadata; clients retrieve the array only when needed. Unchanged large state is shared across successive operations and branches.
+
 ## Laboratories
 
 | Laboratory | Experimental problem | Model basis |
@@ -105,6 +107,7 @@ The [domain package catalogue](labs/README.md) lists the available installations
 | MCP stdio | The same persistent and queued operations exposed to an agent host |
 | Gymnasium | Seeded control environments with explicit action budgets |
 | Verifiable Agent Gym | Isolated tasks whose hidden answers stay with the evaluator |
+| External artifacts | Chunked images, spectra, fields and trajectories outside SQLite |
 | JSONL and calibration | Unit-bearing traces and model profiles with source references |
 
 ```sh
@@ -122,6 +125,7 @@ state, random state and evaluator answers remain owner-side.
 |---|---|
 | `src/synthetic_lab/runtime.py` | Sessions, ordered operation queue, short state transactions, snapshots, forks and streaming export |
 | `src/synthetic_lab/worker.py` | Domain-specific operation workers and renewable claims |
+| `src/synthetic_lab/artifacts.py` | Streamed storage for large state and observations |
 | `src/synthetic_lab/research.py` | Cross-domain scientific contract and validation |
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
@@ -129,7 +133,7 @@ state, random state and evaluator answers remain owner-side.
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
 | `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
 | `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings exercised with live experimental output |
-| `sql/` | Executable relational layout for sessions, operations, claims and snapshots |
+| `sql/` | Relational layout for sessions, operations, claims, snapshots and artifact metadata |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, persistence, concurrency and interface behavior |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |

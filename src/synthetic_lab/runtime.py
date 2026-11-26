@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import random
 import secrets
 import sqlite3
@@ -11,6 +12,13 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .artifacts import (
+    LocalArtifactStore,
+    MemoryArtifactStore,
+    StoredArtifact,
+    is_reference,
+    json_size,
+)
 from .model import arguments
 from .models import available, load
 
@@ -38,11 +46,31 @@ def tuples(value):
 class Lab:
     """A durable experiment database shared by clients and domain worker processes."""
 
-    def __init__(self, database="synthetic-lab.sqlite"):
+    def __init__(
+        self,
+        database="synthetic-lab.sqlite",
+        *,
+        artifact_store=None,
+        artifact_threshold=65536,
+    ):
         self.database = str(database)
         if self.database != ":memory:":
             Path(self.database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
             self.database = str(Path(self.database).expanduser().resolve())
+        if artifact_threshold is not None and (
+            isinstance(artifact_threshold, bool)
+            or not isinstance(artifact_threshold, int)
+            or artifact_threshold <= 0
+        ):
+            raise ValueError("artifact_threshold must be a positive integer or null")
+        self.artifact_threshold = artifact_threshold
+        if artifact_store is None:
+            artifact_store = (
+                MemoryArtifactStore()
+                if self.database == ":memory:"
+                else LocalArtifactStore(self.database + ".artifacts")
+            )
+        self.artifact_store = artifact_store
         self._lock = threading.RLock()
         self._db = sqlite3.connect(
             self.database, timeout=30, isolation_level=None, check_same_thread=False
@@ -56,7 +84,7 @@ class Lab:
     def _initialize(self):
         with self._transaction():
             schema = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if schema not in (0, 1, 2):
+            if schema not in (0, 1, 2, 3):
                 raise ValueError(f"Unsupported database schema {schema}")
             self._db.execute("""CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY, model TEXT NOT NULL, model_version TEXT NOT NULL,
@@ -94,7 +122,16 @@ class Lab:
                         (now, now),
                     )
                     self._db.execute("DROP TABLE operations_v1")
-                self._db.execute("PRAGMA user_version = 2")
+            if schema in (0, 1, 2):
+                self._db.execute("""CREATE TABLE IF NOT EXISTS artifacts (
+                    id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id),
+                    operation_id TEXT, role TEXT NOT NULL, storage_key TEXT NOT NULL,
+                    media_type TEXT NOT NULL, encoding TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL, created REAL NOT NULL)""")
+                self._db.execute(
+                    "CREATE INDEX IF NOT EXISTS artifacts_session ON artifacts(session)"
+                )
+                self._db.execute("PRAGMA user_version = 3")
 
     @contextmanager
     def _transaction(self):
@@ -154,28 +191,34 @@ class Lab:
         session_id = self._identifier(session_id)
         rng = random.Random(seed)
         state = implementation.initial(rng)
-        with self._transaction():
-            try:
-                self._db.execute(
-                    "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        session_id,
-                        model,
-                        implementation.version,
-                        encode(implementation.config),
-                        seed,
-                        session_id,
-                        None,
-                        None,
-                        0,
-                        encode(state),
-                        encode(rng.getstate()),
-                    ),
-                )
-            except sqlite3.IntegrityError as exc:
-                raise Conflict(f"Session {session_id!r} already exists") from exc
-            self._snapshot(session_id, 0, state, rng)
-            self._db.execute("INSERT INTO profiles VALUES (?, ?)", (session_id, profile_json))
+        packed_state, stored = self._pack_state(state)
+        try:
+            with self._transaction():
+                try:
+                    self._db.execute(
+                        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            session_id,
+                            model,
+                            implementation.version,
+                            encode(implementation.config),
+                            seed,
+                            session_id,
+                            None,
+                            None,
+                            0,
+                            encode(packed_state),
+                            encode(rng.getstate()),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise Conflict(f"Session {session_id!r} already exists") from exc
+                self._snapshot(session_id, 0, packed_state, rng)
+                self._db.execute("INSERT INTO profiles VALUES (?, ?)", (session_id, profile_json))
+                self._insert_artifacts(session_id, None, "state", stored)
+        except BaseException:
+            self._discard_artifacts(stored)
+            raise
         return Session(self, session_id)
 
     @staticmethod
@@ -210,11 +253,181 @@ class Lab:
         ).fetchone()
         return json.loads(row[0]) if row else {"source": "theory"}
 
+    def _stored_artifact(self, reference):
+        row = self._artifact_row(reference["$artifact"]["id"])
+        return StoredArtifact(
+            row["id"],
+            row["storage_key"],
+            row["media_type"],
+            row["encoding"],
+            row["size_bytes"],
+        )
+
+    def _store_value(self, value, *, previous=None):
+        prior = self._stored_artifact(previous) if is_reference(previous) else None
+        stored = self.artifact_store.put_json(value, previous=prior)
+        created = prior is None or stored.id != prior.id
+        return stored.reference(), stored if created else None
+
+    def _pack_nested(self, value, stored, previous=None):
+        if is_reference(value):
+            return value
+        if isinstance(value, dict):
+            if self.artifact_threshold is not None and json_size(value) >= self.artifact_threshold:
+                reference, item = self._store_value(value, previous=previous)
+                if item is not None:
+                    stored.append(item)
+                return reference
+            prior = previous if isinstance(previous, dict) and not is_reference(previous) else {}
+            return {
+                key: self._pack_nested(child, stored, prior.get(key))
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            if self.artifact_threshold is not None and json_size(value) >= self.artifact_threshold:
+                reference, item = self._store_value(value, previous=previous)
+                if item is not None:
+                    stored.append(item)
+                return reference
+            prior = previous if isinstance(previous, list) else []
+            return [
+                self._pack_nested(
+                    child,
+                    stored,
+                    prior[index] if index < len(prior) else None,
+                )
+                for index, child in enumerate(value)
+            ]
+        return value
+
+    def _pack_state(self, state, previous=None):
+        stored = []
+        prior = previous if isinstance(previous, dict) else {}
+        packed = {
+            key: self._pack_nested(value, stored, prior.get(key)) for key, value in state.items()
+        }
+        return packed, stored
+
+    def _pack_observations(self, observations):
+        stored = []
+        packed = {}
+        for name, observation in observations.items():
+            if isinstance(observation, dict) and "value" in observation:
+                item = dict(observation)
+                value = item["value"]
+                if (
+                    self.artifact_threshold is not None
+                    and isinstance(value, (dict, list))
+                    and json_size(value) >= self.artifact_threshold
+                ):
+                    item["value"], artifact = self._store_value(value)
+                    if artifact is not None:
+                        stored.append(artifact)
+                packed[name] = item
+            else:
+                packed[name] = self._pack_nested(observation, stored)
+        return packed, stored
+
+    def _insert_artifacts(self, session_id, operation_id, role, stored):
+        if not stored:
+            return
+        now = time.time()
+        self._db.executemany(
+            """INSERT INTO artifacts (
+                id, session, operation_id, role, storage_key, media_type, encoding,
+                size_bytes, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    item.id,
+                    session_id,
+                    operation_id,
+                    role,
+                    item.storage_key,
+                    item.media_type,
+                    item.encoding,
+                    item.size_bytes,
+                    now,
+                )
+                for item in stored
+            ],
+        )
+
+    def _discard_artifacts(self, stored):
+        for item in stored:
+            self.artifact_store.discard(item.storage_key)
+
+    def _artifact_row(self, artifact_id):
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Unknown artifact {artifact_id!r}")
+            return row
+
+    def _materialize(self, value):
+        if is_reference(value):
+            artifact_id = value["$artifact"]["id"]
+            row = self._artifact_row(artifact_id)
+            with self.artifact_store.open(row["storage_key"]) as stream:
+                return self._materialize(json.load(stream))
+        if isinstance(value, dict):
+            return {key: self._materialize(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [self._materialize(child) for child in value]
+        return value
+
+    def artifact_info(self, artifact_id):
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            return {
+                "id": row["id"],
+                "uri": f"artifact://{row['id']}",
+                "session": row["session"],
+                "operation_id": row["operation_id"],
+                "role": row["role"],
+                "media_type": row["media_type"],
+                "encoding": row["encoding"],
+                "size_bytes": row["size_bytes"],
+            }
+
+    def read_artifact(self, artifact_id):
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            storage_key = row["storage_key"]
+        with self.artifact_store.open(storage_key) as stream:
+            return self._materialize(json.load(stream))
+
+    def iter_artifact(self, artifact_id, *, chunk_size=65536):
+        if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
+            raise ValueError("chunk_size must be a positive integer")
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            storage_key = row["storage_key"]
+        with self.artifact_store.open(storage_key) as stream:
+            while chunk := stream.read(chunk_size):
+                yield chunk
+
+    def export_artifact(self, artifact_id, path):
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(destination.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            with temporary.open("wb") as stream:
+                for chunk in self.iter_artifact(artifact_id):
+                    stream.write(chunk)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {**self.artifact_info(artifact_id), "path": str(destination)}
+
     def status(self, session_id):
         with self._lock:
             row = self._row(session_id)
             model = self._model(row)
-            state = json.loads(row["state"])
+            state = self._materialize(json.loads(row["state"]))
             return {
                 "session": row["id"],
                 "model": row["model"],
@@ -411,34 +624,53 @@ class Lab:
 
     def _complete_task(self, task, state, rng, result):
         now = time.time()
+        packed_state, state_artifacts = self._pack_state(state, previous=json.loads(task["state"]))
+        packed_observations, observation_artifacts = self._pack_observations(result["observations"])
+        result["observations"] = packed_observations
         result_json = encode(result)
         revision = task["base_revision"] + 1
-        with self._transaction():
-            operation = self._db.execute(
-                "SELECT status, worker FROM operations WHERE sequence = ?", (task["sequence"],)
-            ).fetchone()
-            if (
-                operation is None
-                or operation["status"] != "running"
-                or operation["worker"] != task["worker"]
-            ):
-                raise Conflict("Operation is no longer owned by this worker")
-            row = self._row(task["session"])
-            if row["revision"] != task["base_revision"]:
-                raise Conflict(
-                    f"Operation began at revision {task['base_revision']}, found {row['revision']}"
+        created_artifacts = state_artifacts + observation_artifacts
+        try:
+            with self._transaction():
+                operation = self._db.execute(
+                    "SELECT status, worker FROM operations WHERE sequence = ?",
+                    (task["sequence"],),
+                ).fetchone()
+                if (
+                    operation is None
+                    or operation["status"] != "running"
+                    or operation["worker"] != task["worker"]
+                ):
+                    raise Conflict("Operation is no longer owned by this worker")
+                row = self._row(task["session"])
+                if row["revision"] != task["base_revision"]:
+                    raise Conflict(
+                        f"Operation began at revision {task['base_revision']}, "
+                        f"found {row['revision']}"
+                    )
+                self._db.execute(
+                    "UPDATE sessions SET state = ?, rng = ?, revision = ? WHERE id = ?",
+                    (encode(packed_state), encode(rng.getstate()), revision, task["session"]),
                 )
-            self._db.execute(
-                "UPDATE sessions SET state = ?, rng = ?, revision = ? WHERE id = ?",
-                (encode(state), encode(rng.getstate()), revision, task["session"]),
-            )
-            self._db.execute(
-                """UPDATE operations SET status = 'succeeded', revision = ?, result = ?,
-                   error = NULL, worker = NULL, claim_until = NULL, updated = ?
-                   WHERE sequence = ?""",
-                (revision, result_json, now, task["sequence"]),
-            )
-            self._snapshot(task["session"], revision, state, rng)
+                self._db.execute(
+                    """UPDATE operations SET status = 'succeeded', revision = ?, result = ?,
+                       error = NULL, worker = NULL, claim_until = NULL, updated = ?
+                       WHERE sequence = ?""",
+                    (revision, result_json, now, task["sequence"]),
+                )
+                self._snapshot(task["session"], revision, packed_state, rng)
+                self._insert_artifacts(
+                    task["session"], task["operation_id"], "state", state_artifacts
+                )
+                self._insert_artifacts(
+                    task["session"],
+                    task["operation_id"],
+                    "observation",
+                    observation_artifacts,
+                )
+        except BaseException:
+            self._discard_artifacts(created_artifacts)
+            raise
         return result
 
     def _execute(self, task):
@@ -458,7 +690,7 @@ class Lab:
                     f"Session needs {task['model']} model version {task['model_version']}"
                 )
             request = json.loads(task["request"])
-            state = json.loads(task["state"])
+            state = self._materialize(json.loads(task["state"]))
             rng = random.Random()
             rng.setstate(tuples(json.loads(task["rng"])))
             start = state["time_s"]

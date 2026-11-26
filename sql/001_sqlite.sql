@@ -51,4 +51,19 @@ CREATE TABLE IF NOT EXISTS profiles (
     provenance TEXT NOT NULL
 );
 
-PRAGMA user_version = 2;
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    operation_id TEXT,
+    role TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    encoding TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS artifacts_session
+    ON artifacts (session);
+
+PRAGMA user_version = 3;

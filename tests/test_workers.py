@@ -115,7 +115,12 @@ def test_schema_one_database_is_migrated_to_queued_operations(tmp_path):
     with sqlite3.connect(database) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
         assert {"status", "base_revision", "worker", "claim_until"} <= columns
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert "artifacts" in tables
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 def test_history_iterator_reads_in_batches(tmp_path):

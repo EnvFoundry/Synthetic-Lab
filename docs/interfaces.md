@@ -14,6 +14,8 @@ synthetic-lab --db runs/lab.sqlite act heater read
 synthetic-lab --db runs/lab.sqlite fork heater --id comparison
 synthetic-lab --db runs/lab.sqlite status heater
 synthetic-lab --db runs/lab.sqlite export heater runs/heater.jsonl
+synthetic-lab --db runs/lab.sqlite artifact-info ARTIFACT_ID
+synthetic-lab --db runs/lab.sqlite artifact ARTIFACT_ID runs/image.json
 ```
 
 `act` submits an operation and waits for completion. Long calculations can be submitted without
@@ -36,7 +38,7 @@ command emits JSON. Invalid actions return an error and leave the simulation sta
 
 `synthetic-lab --db runs/lab.sqlite serve` reads JSON requests on stdin and writes one result per
 line. The envelope has `id`, `method` and `params`. Supported methods are `catalogue`, `sessions`,
-`create`, `status`, `act`, `submit`, `operation`, `fork` and `history`.
+`create`, `status`, `act`, `submit`, `operation`, `artifact_info`, `fork` and `history`.
 
 ```json
 {"id":1,"method":"submit","params":{"session_id":"heater","action":"wait","params":{"seconds":3600},"operation_id":"long-settle"}}
@@ -58,7 +60,7 @@ Install `.[agent]`. Configure a stdio-compatible host with the executable and an
 ```
 
 The tools are `laboratories`, `sessions`, `create`, `observe_configuration`, `operate`,
-`submit_operation`, `operation_status`, `fork` and `history`. The catalogue describes valid action
+`submit_operation`, `operation_status`, `artifact_information`, `fork` and `history`. The catalogue describes valid action
 names, parameter bounds and units. `operate` waits for a result. `submit_operation` returns a
 pending or running operation immediately, and `operation_status` returns its current state and final
 result. Operation IDs let a host repeat a request after losing a response without applying the
@@ -143,9 +145,7 @@ interval, observations and visible settings. Latent state and random-state snaps
 database. `Lab.iter_history()` supports incremental consumers without loading a complete long
 experiment into memory.
 
-Large images, fields and trajectories still need an external data store rather than inline JSON.
-The operation result is the place for a compact reference, shape, units and acquisition metadata;
-the next storage layer will implement that reference without changing domain equations.
+Large images, spectra, fields and trajectories are written to the configured artifact store. The operation result retains a compact reference, shape, units, axes and acquisition metadata. Use `artifact-info` to read metadata, `artifact` to copy an object without loading it in memory, or `Lab.iter_artifact()` for bounded byte chunks. File-backed databases use a sibling `<database>.artifacts` directory unless `--artifacts` or an explicit store selects a shared location. See [External experiment data](artifacts.md).
 
 Group related branches by lineage when forming dataset splits. Group empirical records by the relevant device, batch or date when measuring generalization. Data Engineering can ingest these records through a source adapter appropriate to its own record schema.
 

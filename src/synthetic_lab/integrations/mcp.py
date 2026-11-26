@@ -74,6 +74,11 @@ def server(lab):
         return lab.operation(session, operation_id)
 
     @mcp.tool()
+    def artifact_information(artifact_id: str) -> dict:
+        """Describe an external image, spectrum, field or trajectory by artifact ID."""
+        return lab.artifact_info(artifact_id)
+
+    @mcp.tool()
     def fork(session: str, revision: int | None = None) -> dict:
         """Branch a simulation at a saved revision, preserving its state and noise sequence."""
         return lab.fork(session, at_revision=revision).status()
