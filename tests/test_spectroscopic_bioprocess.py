@@ -14,9 +14,8 @@ def test_substrate_balance_and_working_volume():
     model.advance(state, 7200.0)
     assert state["volume_l"] == pytest.approx(1.2)
     assert state["feed_rate_l_h"] == 0.0
-    assert (
-        state["substrate_g"] + state["substrate_consumed_g"]
-        == pytest.approx(initial_substrate + state["substrate_fed_g"], abs=1e-9)
+    assert state["substrate_g"] + state["substrate_consumed_g"] == pytest.approx(
+        initial_substrate + state["substrate_fed_g"], abs=1e-9
     )
     assert min(state[key] for key in ("biomass_g", "substrate_g", "product_g")) >= 0.0
 
