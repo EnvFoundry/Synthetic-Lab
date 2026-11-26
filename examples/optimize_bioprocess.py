@@ -19,12 +19,8 @@ def measure(session):
     fluorescence = session.act("read", instrument="fluorescence")["observations"][
         "reporter_fluorescence"
     ]["value"]
-    oxygen = session.act("read", instrument="optode")["observations"][
-        "dissolved_oxygen"
-    ]["value"]
-    raman = session.act("read", instrument="raman")["observations"][
-        "raman_intensity"
-    ]["value"]
+    oxygen = session.act("read", instrument="optode")["observations"]["dissolved_oxygen"]["value"]
+    raman = session.act("read", instrument="raman")["observations"]["raman_intensity"]["value"]
     return {
         "od600": od,
         "reporter_fluorescence_count_per_s": fluorescence,
