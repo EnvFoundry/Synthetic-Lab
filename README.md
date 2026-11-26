@@ -4,17 +4,18 @@
 
 [中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
 [Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
-[Agent and RL interfaces](docs/interfaces.md) · [Contribute](CONTRIBUTING.md)
+[Agent and RL interfaces](docs/interfaces.md) · [Language interfaces](docs/platform.md) ·
+[Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
 wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
 an earlier state to compare interventions. Sessions retain time, hidden specimen state and random
 state across process restarts.
 
-A laboratory now exposes both controls and a machine-readable **research contract**: the questions
+A laboratory exposes controls and a machine-readable **research contract**: the questions
 it can investigate, observables, latent variables, interventions, invariants, validity conditions,
-limitations, failure modes and reference methods. This prevents a catalogue of callable functions
-from being mistaken for a scientific environment.
+limitations and reference methods. Agents can discover this information through the same catalogue
+used by Python, CLI and MCP clients.
 
 ## Run an experiment
 
@@ -26,6 +27,9 @@ cd Synthetic-Lab
 python -m pip install -e .
 python examples/open_research.py
 python examples/optimize_reaction.py
+python -m pip install -e labs/optical-metrology
+python examples/coat_thin_film.py
+python examples/adaptive_microscopy.py
 ```
 
 ```python
@@ -54,18 +58,21 @@ normalized parameters, units, provenance and visible configuration.
 | `fiber` | Find and track a drifting coupling peak; distinguish source variation from alignment loss; choose zeroing and exposure | Gaussian coupling, laser warm-up, drift and finite-range detectors |
 | `thermal` | Separate heating power from thermal contact and predict a held-out power or clamp condition | Joule heating, lumped heat capacity and thermal resistance |
 | `battery` | Design pulses to identify resistance and relaxation while respecting voltage and temperature limits | Charge balance, one-RC equivalent circuit and self-heating |
+| `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
+| `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
 | `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
 These are reference simulations with synthetic parameter priors, not device-specific twins. Their
 contracts and model documents state the approximations and failure conditions. A calibrated twin
 must name its physical counterpart, data, operating range and held-out predictive performance.
-[Reaction model](docs/reaction-lab.md) · [Reference models](docs/models.md)
+[Reaction model](docs/reaction-lab.md) · [Optical metrology](docs/optical-metrology.md) ·
+[Reference models](docs/models.md)
 
 The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
 fabrication, scientific imaging, fusion, Earth systems, manufacturing and quantum control.
-Domains should normally be independently versioned packages sharing the same runtime and contract,
-not shallow models accumulated in the core.
+Domains use independently installable packages sharing the same runtime and contract.
+The [domain package catalogue](labs/README.md) lists the available installations.
 
 ## Agents, learning and data
 
@@ -95,14 +102,17 @@ state, random state and verifier answers remain owner-side.
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
-| `examples/` | End-to-end research, alignment, pulse, reaction and learning programmes |
+| `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
+| `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings tested with live experimental output |
+| `sql/` | Executable relational layout, tested with runtime creation and resumption |
+| `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
 
 Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,
 SeedEnv prepares dependencies, Gym owns tasks and assessment, and data systems consume traces.
 Synthetic Lab owns simulated experimental state and observations. The present runtime is local
-Python and SQLite; language-neutral service boundaries are a separate platform layer rather than a
-reason to duplicate scientific models.
+Python and SQLite. TypeScript and Rust implement the data boundary; a Web workbench and persistent
+solver-worker service are subsequent platform work. Scientific models remain in their domain packages.
 
 MIT licensed.

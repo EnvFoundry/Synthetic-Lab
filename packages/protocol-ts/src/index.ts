@@ -77,7 +77,7 @@ export interface LaboratoryDescription {
   validation: string;
   capabilities: string[];
   actions: Record<string, Record<string, Parameter>>;
-  research_contract: ResearchContract;
+  research_contract?: ResearchContract;
 }
 
 export interface OperationResult {
@@ -99,23 +99,48 @@ export interface OperationResult {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+}
+
+function isJsonValue(value: unknown, parents = new Set<object>()): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (!Array.isArray(value) && !isRecord(value)) return false;
+  if (parents.has(value)) return false;
+  parents.add(value);
+  const children = Array.isArray(value) ? Array.from(value) : Object.values(value);
+  const valid = children.every(child => isJsonValue(child, parents));
+  parents.delete(value);
+  return valid;
 }
 
 export function isOperationResult(value: unknown): value is OperationResult {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !isJsonValue(value)) return false;
+  const fields = [
+    "schema_version", "session", "lineage", "operation_id", "revision", "model",
+    "model_version", "source", "model_provenance", "action", "parameters", "start_s",
+    "end_s", "observations", "configuration",
+  ];
+  if (Object.keys(value).length !== fields.length || !fields.every(key => Object.hasOwn(value, key))) {
+    return false;
+  }
+  const identifiers = ["session", "lineage", "operation_id", "model", "model_version", "action"];
+  if (!identifiers.every(key => typeof value[key] === "string" && value[key].trim().length > 0)) {
+    return false;
+  }
   return (
     value.schema_version === PROTOCOL_VERSION &&
     typeof value.session === "string" &&
     typeof value.lineage === "string" &&
     typeof value.operation_id === "string" &&
-    Number.isInteger(value.revision) &&
+    typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision > 0 &&
     typeof value.model === "string" &&
     typeof value.model_version === "string" &&
     value.source === "simulation" &&
     typeof value.action === "string" &&
     typeof value.start_s === "number" &&
-    typeof value.end_s === "number" &&
+    typeof value.end_s === "number" && value.start_s >= 0 && value.end_s >= value.start_s &&
     isRecord(value.model_provenance) &&
     isRecord(value.parameters) &&
     isRecord(value.observations) &&

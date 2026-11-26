@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "tsc --outDir dist && node dist/test/contract.js"
   },
   "devDependencies": {
+    "@types/node": "^22.20.7",
     "typescript": "^5.8.3"
   }
 }

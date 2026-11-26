@@ -1,51 +1,35 @@
-import {
-  PROTOCOL_VERSION,
-  assertOperationResult,
-  type OperationResult,
-  type ResearchContract,
-} from "../src/index.js";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { assertOperationResult, isOperationResult } from "../src/index.js";
 
-const result: OperationResult = {
-  schema_version: PROTOCOL_VERSION,
-  session: "reaction-13",
-  lineage: "reaction-13",
-  operation_id: "read-1",
-  revision: 3,
-  model: "reaction",
-  model_version: "1",
-  source: "simulation",
-  model_provenance: { source: "theory" },
-  action: "read",
-  parameters: { instrument: "thermometer" },
-  start_s: 600.1,
-  end_s: 600.3,
-  observations: { temperature: { value: 355.2, unit: "K", noise_std: 0.08 } },
-  configuration: { temperature_setpoint_k: 365.0 },
-};
+const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const read = (name: string): unknown => JSON.parse(readFileSync(join(root, name), "utf8"));
+const fixture = read("spec/examples/operation-result.json");
+assertOperationResult(fixture);
+const cases = read("spec/examples/operation-cases.json") as {
+  name: string; patch: Record<string, unknown>; valid: boolean;
+}[];
+for (const example of cases) {
+  assert.equal(isOperationResult({ ...fixture, ...example.patch }), example.valid, example.name);
+}
+for (const value of [NaN, Infinity, -Infinity]) {
+  assert.equal(isOperationResult({ ...fixture, end_s: value }), false);
+  assert.equal(isOperationResult({ ...fixture, observations: { intensity: value } }), false);
+}
+assert.equal(isOperationResult({ ...fixture, observations: { intensity: undefined } }), false);
+const circular: Record<string, unknown> = {};
+circular.self = circular;
+assert.equal(isOperationResult({ ...fixture, observations: circular }), false);
 
-assertOperationResult(result);
-
-const contract: ResearchContract = {
-  schema_version: PROTOCOL_VERSION,
-  domains: ["chemistry"],
-  phenomena: ["kinetics"],
-  questions: ["Which schedule maximizes B?"],
-  observables: { b: { unit: "mol/L", description: "Intermediate concentration." } },
-  latent_variables: {},
-  interventions: ["set_temperature"],
-  invariants: ["A+B+C is conserved."],
-  failure_conditions: ["Thermal protection trips."],
-  validity: {
-    fidelity: "reduced-order",
-    conditions: ["Well-mixed batch."],
-    limitations: ["No mass-transfer limitation."],
-  },
-  action_semantics: {
-    set_temperature: { kind: "control", description: "Set the jacket target." },
-  },
-  reference_methods: ["held-out schedule prediction"],
-  physical_counterpart: "Jacketed batch reactor",
-  metadata: {},
-};
-
-void contract;
+const records = read("runs/protocol.json") as Record<string, unknown>[];
+let observed = 0;
+for (const record of records) {
+  if ("result" in record) {
+    assertOperationResult(record.result);
+    observed += 1;
+  }
+}
+assert.ok(observed > 0, "The runtime must produce instrument observations");
+console.log(`Checked ${cases.length} protocol cases and ${observed} live operation results`);

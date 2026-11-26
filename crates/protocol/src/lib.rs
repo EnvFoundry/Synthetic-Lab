@@ -91,10 +91,12 @@ pub struct LaboratoryDescription {
     pub validation: String,
     pub capabilities: Vec<String>,
     pub actions: BTreeMap<String, BTreeMap<String, Parameter>>,
-    pub research_contract: ResearchContract,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub research_contract: Option<ResearchContract>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct OperationResult {
     pub schema_version: u32,
     pub session: String,
@@ -118,10 +120,26 @@ impl OperationResult {
         if self.schema_version != PROTOCOL_VERSION {
             return Err("unsupported schema version");
         }
-        if self.session.is_empty() || self.operation_id.is_empty() || self.model.is_empty() {
+        if [
+            &self.session,
+            &self.lineage,
+            &self.operation_id,
+            &self.model,
+            &self.model_version,
+            &self.action,
+        ]
+        .iter()
+        .any(|value| value.trim().is_empty())
+        {
             return Err("required identifiers cannot be empty");
         }
-        if self.revision == 0 || self.start_s < 0.0 || self.end_s < self.start_s {
+        if self.revision == 0
+            || self.revision > 9_007_199_254_740_991
+            || !self.start_s.is_finite()
+            || !self.end_s.is_finite()
+            || self.start_s < 0.0
+            || self.end_s < self.start_s
+        {
             return Err("invalid revision or time interval");
         }
         if self.source != "simulation" {

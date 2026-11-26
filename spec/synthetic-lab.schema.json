@@ -150,8 +150,7 @@
         "source",
         "validation",
         "capabilities",
-        "actions",
-        "research_contract"
+        "actions"
       ],
       "properties": {
         "name": {"type": "string", "minLength": 1},
@@ -192,18 +191,18 @@
       ],
       "properties": {
         "schema_version": {"const": 1},
-        "session": {"type": "string", "minLength": 1},
-        "lineage": {"type": "string", "minLength": 1},
-        "operation_id": {"type": "string", "minLength": 1},
-        "revision": {"type": "integer", "minimum": 1},
-        "model": {"type": "string", "minLength": 1},
-        "model_version": {"type": "string", "minLength": 1},
+        "session": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "lineage": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "operation_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+        "model": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "model_version": {"type": "string", "minLength": 1, "pattern": "\\S"},
         "source": {"const": "simulation"},
         "model_provenance": {
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/jsonValue"}
         },
-        "action": {"type": "string", "minLength": 1},
+        "action": {"type": "string", "minLength": 1, "pattern": "\\S"},
         "parameters": {
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/jsonValue"}
@@ -225,5 +224,6 @@
     "laboratory": {"$ref": "#/$defs/laboratoryDescription"},
     "result": {"$ref": "#/$defs/operationResult"}
   },
+  "anyOf": [{"required": ["laboratory"]}, {"required": ["result"]}],
   "additionalProperties": false
 }

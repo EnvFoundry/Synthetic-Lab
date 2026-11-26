@@ -3,6 +3,7 @@
 import math
 
 from synthetic_lab.model import Model, Parameter, reading
+from synthetic_lab.research import ResearchContract
 
 
 class Tank(Model):
@@ -15,6 +16,29 @@ class Tank(Model):
     }
     defaults = {"area": 0.05, "conductance": 0.0004}
     parameters = {"area": Parameter("m2", 0.01, 1), "conductance": Parameter("m2/s", 0.0002, 0.001)}
+    research = ResearchContract(
+        domains=("fluid mechanics", "process control"),
+        phenomena=("volume balance", "linear hydraulic resistance"),
+        questions=("Can transient level measurements identify an unknown outlet conductance?",),
+        observables={"level": {"unit": "m", "description": "Noisy liquid height."}},
+        latent_variables={
+            "conductance": {"unit": "m2/s", "description": "Specimen-specific outlet conductance."},
+            "level": {"unit": "m", "description": "Actual liquid height before sensor noise."},
+        },
+        interventions=("pump",),
+        invariants=("Initial volume plus inflow equals stored volume plus outflow.",),
+        validity_conditions=("Uniform cross-section, incompressible liquid and a linear outlet.",),
+        limitations=("No turbulence, overflow, evaporation or pump lag.",),
+        failure_conditions=("A nonlinear outlet cannot be identified by this linear model.",),
+        fidelity="analytical",
+        action_semantics={
+            "pump": {"kind": "control", "description": "Set inlet volume flow."},
+            "wait": {"kind": "wait", "description": "Continue inflow and drainage."},
+            "read": {"kind": "measurement", "description": "Measure level after 0.1 seconds."},
+        },
+        reference_methods=("steady-state conductance estimate", "transient exponential fit"),
+        physical_counterpart="A constant-area tank with a pump and resistive drain",
+    )
 
     def initial(self, rng):
         return {

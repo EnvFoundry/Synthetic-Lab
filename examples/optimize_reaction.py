@@ -16,15 +16,23 @@ SCHEDULES = {
 def run_schedule(root, schedule):
     experiment = root.fork()
     temperatures = []
+    start = experiment.status()["time_s"]
+    deadline = start
     for setpoint, duration in schedule:
+        deadline += duration
         experiment.act("set_temperature", setpoint=setpoint)
-        experiment.act("wait", seconds=duration)
+        # Include the command and thermometer acquisition in each stage's budget.
+        remaining = deadline - experiment.status()["time_s"] - 0.2
+        if remaining < 0:
+            raise ValueError("Temperature stages must leave time for a thermometer reading")
+        experiment.act("wait", seconds=remaining)
         temperatures.append(
             experiment.act("read", instrument="thermometer")["observations"]["temperature"]["value"]
         )
     observations = experiment.act("read", instrument="chromatograph")["observations"]
     return experiment, {
         "schedule": schedule,
+        "elapsed_s": experiment.status()["time_s"] - start,
         "measured_temperatures_k": temperatures,
         "a_mol_per_l": observations["a"]["value"],
         "b_mol_per_l": observations["b"]["value"],
@@ -50,7 +58,7 @@ def main():
         winner = max(results, key=lambda name: results[name]["b_mol_per_l"])
         report = {
             "source": "simulation",
-            "comparison": "common initial specimen and equal nominal process time",
+            "comparison": "common initial specimen and equal elapsed time including measurements",
             "objective": "maximize measured intermediate B concentration",
             "winner": winner,
             "sessions": sessions,
