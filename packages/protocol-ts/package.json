@@ -1,0 +1,14 @@
+{
+  "name": "@envfoundry/synthetic-lab-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsc --outDir dist && node dist/test/contract.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.7",
+    "typescript": "^5.8.3"
+  }
+}

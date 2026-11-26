@@ -15,7 +15,7 @@ dependencies = []
 [project.optional-dependencies]
 rl = ["gymnasium>=1.0,<2", "numpy>=1.24"]
 agent = ["mcp>=1.12,<2"]
-test = ["pytest>=8,<10", "ruff>=0.9", "build>=1.2"]
+test = ["pytest>=8,<10", "ruff>=0.9", "build>=1.2", "jsonschema>=4.18"]
 
 [project.scripts]
 synthetic-lab = "synthetic_lab.cli:main"

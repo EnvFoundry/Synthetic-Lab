@@ -49,10 +49,12 @@ def main():
         direct_image = camera(direct)
         direct_result = {
             "focus_z_um": direct.status()["configuration"]["focus_z_um"],
-            "image_sharpness": sharpness(direct_image["value"]),
+            "image_laplacian_energy_counts2": sharpness(direct_image["value"]),
             "image_dose_mj": direct_image["dose_mj"],
             "remaining_signal_count_per_s": remaining_signal(direct),
         }
+        direct_result["total_dose_mj"] = direct.status()["configuration"]["accumulated_dose_mj"]
+        direct_result["elapsed_s"] = direct.status()["time_s"]
 
         adaptive = root.fork()
         adaptive.act("illumination", power=0.3)
@@ -69,14 +71,17 @@ def main():
         adaptive_result = {
             "focus_sweep": focus_scores,
             "selected_focus_z_um": best_focus,
-            "image_sharpness": sharpness(adaptive_image["value"]),
+            "image_laplacian_energy_counts2": sharpness(adaptive_image["value"]),
             "final_image_dose_mj": adaptive_image["dose_mj"],
             "remaining_signal_count_per_s": remaining_signal(adaptive),
         }
+        adaptive_result["total_dose_mj"] = adaptive.status()["configuration"]["accumulated_dose_mj"]
+        adaptive_result["elapsed_s"] = adaptive.status()["time_s"]
 
         report = {
             "source": "simulation",
             "comparison": "branches from one specimen before illumination",
+            "image_statistic": "Raw Laplacian energy depends on both focus and photon dose.",
             "direct": direct_result,
             "adaptive": adaptive_result,
         }

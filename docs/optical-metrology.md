@@ -12,6 +12,8 @@ functions.
 physical thickness, porosity, effective refractive index, extinction, RMS roughness, temperature
 and specimen-specific deposition gain. Material arrives only when the shutter is open. Elevated
 temperature densifies the film and smooths the surface.
+Annealing conserves solid material per unit area, \(d(1-p)\), so physical thickness decreases
+as porosity \(p\) decreases. Deposition adds material with the as-deposited porosity.
 
 At normal incidence, the complex reflection amplitude of a single film is
 
@@ -24,6 +26,8 @@ r(\lambda)=\frac{r_{01}+r_{12}e^{2 i \delta}}
 R=|r|^2.
 \]
 
+The convention is \(\tilde n=n+i\kappa\) with \(\exp(-i\omega t)\) time dependence, so positive
+extinction attenuates propagation. An opaque film approaches its front-surface reflectance.
 A roughness factor attenuates the reflected intensity. The broadband reflectometer returns eight
 wavelength channels. The interferometer returns phase modulo \(2\pi\), so one wavelength alone
 cannot determine absolute thickness. The pyrometer gives a fast temperature observation.
@@ -43,7 +47,8 @@ approximation to a diffraction-limited point-spread function,
 + (0.38\,\Delta z)^2.
 \]
 
-Pixel integration includes background, detector offset, photon-dependent variance, read noise and
+The Gaussian PSF is integrated over each pixel area. Light outside the finite field is lost.
+The measurement includes background, detector offset, photon-dependent variance, read noise and
 finite detector range. Sample drift continues during every action. Illumination dose irreversibly
 reduces later fluorescence:
 
@@ -51,9 +56,18 @@ reduces later fluorescence:
 F_{t+1}=F_t\exp(-k_b P\Delta t).
 \]
 
-The photometer is fast and field-integrated; the camera is slower and spatially informative.
+Photon yield integrates this decay throughout the exposure using
+\((1-\exp(-k_bP\Delta t))/(k_bP)\), with limit \(\Delta t\) at zero bleach rate.
+Emitter positions are sampled at the exposure midpoint; intra-exposure motion blur is not modeled.
+Excitation is synchronized to camera and photometer acquisitions; waiting and stage motion are dark.
+
+The photometer and camera collect the same field. The photometer is fast and field-integrated;
+the camera is slower and spatially informative.
 `examples/adaptive_microscopy.py` compares a direct high-dose exposure with a low-dose focus sweep
 followed by a shorter image, using branches from the same pre-illumination specimen.
+The report includes total dose from focus search, final acquisition and the remaining-signal probe,
+along with elapsed time. Raw Laplacian energy depends on photon dose as well as focus; it is used
+to select focus among equal-exposure images, not as a dose-independent comparison of both routes.
 
 ## Why these two laboratories belong together
 

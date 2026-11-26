@@ -4,17 +4,18 @@
 
 [中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
 [Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
-[Agent and RL interfaces](docs/interfaces.md) · [Contribute](CONTRIBUTING.md)
+[Agent and RL interfaces](docs/interfaces.md) · [Language interfaces](docs/platform.md) ·
+[Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
 wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
 an earlier state to compare interventions. Sessions retain time, hidden specimen state and random
 state across process restarts.
 
-A laboratory now exposes both controls and a machine-readable **research contract**: the questions
+A laboratory exposes controls and a machine-readable **research contract**: the questions
 it can investigate, observables, latent variables, interventions, invariants, validity conditions,
-limitations, failure modes and reference methods. This prevents a catalogue of callable functions
-from being mistaken for a scientific environment.
+limitations and reference methods. Agents can discover this information through the same catalogue
+used by Python, CLI and MCP clients.
 
 ## Run an experiment
 
@@ -70,8 +71,8 @@ must name its physical counterpart, data, operating range and held-out predictiv
 The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
 fabrication, scientific imaging, fusion, Earth systems, manufacturing and quantum control.
-Domains should normally be independently versioned packages sharing the same runtime and contract,
-not shallow models accumulated in the core.
+Domains use independently installable packages sharing the same runtime and contract.
+The [domain package catalogue](labs/README.md) lists the available installations.
 
 ## Agents, learning and data
 
@@ -102,6 +103,8 @@ state, random state and verifier answers remain owner-side.
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
+| `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings tested with live experimental output |
+| `sql/` | Executable relational layout, tested with runtime creation and resumption |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
@@ -109,7 +112,7 @@ state, random state and verifier answers remain owner-side.
 Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,
 SeedEnv prepares dependencies, Gym owns tasks and assessment, and data systems consume traces.
 Synthetic Lab owns simulated experimental state and observations. The present runtime is local
-Python and SQLite; language-neutral service boundaries are a separate platform layer rather than a
-reason to duplicate scientific models.
+Python and SQLite. TypeScript and Rust implement the data boundary; a Web workbench and persistent
+solver-worker service are subsequent platform work. Scientific models remain in their domain packages.
 
 MIT licensed.

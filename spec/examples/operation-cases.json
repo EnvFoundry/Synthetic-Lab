@@ -1,0 +1,17 @@
+[
+  {"name": "reference", "patch": {}, "valid": true},
+  {"name": "zero-duration operation", "patch": {"start_s": 0, "end_s": 0}, "valid": true},
+  {"name": "empty observations", "patch": {"observations": {}}, "valid": true},
+  {"name": "unknown schema", "patch": {"schema_version": 2}, "valid": false},
+  {"name": "zero revision", "patch": {"revision": 0}, "valid": false},
+  {"name": "negative revision", "patch": {"revision": -1}, "valid": false},
+  {"name": "fractional revision", "patch": {"revision": 1.5}, "valid": false},
+  {"name": "inexact JavaScript integer", "patch": {"revision": 9007199254740992}, "valid": false},
+  {"name": "empty lineage", "patch": {"lineage": ""}, "valid": false},
+  {"name": "blank action", "patch": {"action": " "}, "valid": false},
+  {"name": "negative time", "patch": {"start_s": -1}, "valid": false},
+  {"name": "reversed interval", "patch": {"end_s": 0}, "valid": false},
+  {"name": "wrong source", "patch": {"source": "measurement"}, "valid": false},
+  {"name": "missing observation object", "patch": {"observations": null}, "valid": false},
+  {"name": "unknown top-level field", "patch": {"other": 1}, "valid": false}
+]

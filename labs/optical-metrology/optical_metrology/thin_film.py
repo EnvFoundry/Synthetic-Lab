@@ -12,6 +12,7 @@ WAVELENGTHS_NM = (450.0, 500.0, 550.0, 600.0, 650.0, 700.0, 750.0, 800.0)
 
 class ThinFilmBench(Model):
     name = "thin-film"
+    version = "2"
     description = (
         "Deposit and anneal an optical film while observing thickness-dependent interference, "
         "roughness and densification."
@@ -50,11 +51,7 @@ class ThinFilmBench(Model):
         "deposition": {"rate": Parameter("nm/s", 0.0, 2.0)},
         "shutter": {"position": Parameter(choices=("open", "closed"))},
         "temperature": {"setpoint": Parameter("K", 280.0, 800.0)},
-        "read": {
-            "instrument": Parameter(
-                choices=("reflectometer", "interferometer", "pyrometer")
-            )
-        },
+        "read": {"instrument": Parameter(choices=("reflectometer", "interferometer", "pyrometer"))},
         "wait": {"seconds": Parameter("s", 0.0, 7200.0)},
     }
     research = ResearchContract(
@@ -118,8 +115,8 @@ class ThinFilmBench(Model):
         interventions=("deposition", "shutter", "temperature"),
         invariants=(
             (
-                "Film thickness changes only while the shutter is open and deposition "
-                "rate is positive."
+                "Solid material per unit area increases only during open-shutter deposition; "
+                "annealing conserves it while reducing porosity and thickness."
             ),
             "Reflectance remains between zero and one.",
             "Porosity remains between its residual and as-deposited bounds.",
@@ -176,6 +173,11 @@ class ThinFilmBench(Model):
         ),
     )
 
+    def __init__(self, config=None):
+        super().__init__(config)
+        if self.config["residual_porosity"] > self.config["deposition_porosity"]:
+            raise ValueError("Residual porosity cannot exceed as-deposited porosity")
+
     def initial(self, rng):
         variation = self.config["variation"]
         return {
@@ -186,8 +188,7 @@ class ThinFilmBench(Model):
             "temperature_k": self.config["ambient"],
             "temperature_setpoint_k": self.config["ambient"],
             "rate_command_nm_s": 0.0,
-            "rate_gain": self.config["rate_gain"]
-            * rng.uniform(1.0 - variation, 1.0 + variation),
+            "rate_gain": self.config["rate_gain"] * rng.uniform(1.0 - variation, 1.0 + variation),
             "bulk_index": self.config["bulk_index"]
             * rng.uniform(1.0 - variation / 2.0, 1.0 + variation / 2.0),
             "shutter": "closed",
@@ -200,7 +201,8 @@ class ThinFilmBench(Model):
 
     def reflectance(self, state, wavelength_nm):
         n0 = 1.0 + 0j
-        n1 = complex(self.effective_index(state), -self.config["extinction"])
+        # With exp(+i k z - i omega t), positive extinction attenuates propagation.
+        n1 = complex(self.effective_index(state), self.config["extinction"])
         n2 = complex(self.config["substrate_index"], 0.0)
         r01 = (n0 - n1) / (n0 + n1)
         r12 = (n1 - n2) / (n1 + n2)
@@ -210,25 +212,20 @@ class ThinFilmBench(Model):
         roughness = (
             1.0
             if state["thickness_nm"] == 0.0
-            else math.exp(
-                -((4.0 * math.pi * state["roughness_nm"] / wavelength_nm) ** 2)
-            )
+            else math.exp(-((4.0 * math.pi * state["roughness_nm"] / wavelength_nm) ** 2))
         )
         return max(0.0, min(1.0, abs(amplitude) ** 2 * roughness))
 
     def _step(self, state, seconds):
         old_thickness = state["thickness_nm"]
         actual_rate = (
-            state["rate_command_nm_s"] * state["rate_gain"]
-            if state["shutter"] == "open"
-            else 0.0
+            state["rate_command_nm_s"] * state["rate_gain"] if state["shutter"] == "open" else 0.0
         )
         deposited = actual_rate * seconds
         new_thickness = old_thickness + deposited
         if deposited > 0.0:
             state["porosity"] = (
-                old_thickness * state["porosity"]
-                + deposited * self.config["deposition_porosity"]
+                old_thickness * state["porosity"] + deposited * self.config["deposition_porosity"]
             ) / new_thickness
             state["roughness_nm"] += self.config["roughness_per_nm"] * deposited
             state["thickness_nm"] = new_thickness
@@ -236,17 +233,17 @@ class ThinFilmBench(Model):
         before_temperature = state["temperature_k"]
         target = state["temperature_setpoint_k"]
         tau = self.config["thermal_time"]
-        state["temperature_k"] = target + (before_temperature - target) * math.exp(
-            -seconds / tau
-        )
+        state["temperature_k"] = target + (before_temperature - target) * math.exp(-seconds / tau)
         temperature = max(0.5 * (before_temperature + state["temperature_k"]), 1.0)
         anneal_rate = self.config["anneal_preexponential"] * math.exp(
             -self.config["anneal_activation"] / (R_GAS * temperature)
         )
+        solid_thickness = state["thickness_nm"] * (1.0 - state["porosity"])
         residual = self.config["residual_porosity"]
         state["porosity"] = residual + (state["porosity"] - residual) * math.exp(
             -anneal_rate * seconds
         )
+        state["thickness_nm"] = solid_thickness / (1.0 - state["porosity"])
         base = self.config["base_roughness"]
         state["roughness_nm"] = base + (state["roughness_nm"] - base) * math.exp(
             -0.5 * anneal_rate * seconds
@@ -274,9 +271,7 @@ class ThinFilmBench(Model):
             self.advance(state, params["seconds"])
         elif action == "read":
             instrument = params["instrument"]
-            duration = {"reflectometer": 1.0, "interferometer": 0.2, "pyrometer": 0.1}[
-                instrument
-            ]
+            duration = {"reflectometer": 1.0, "interferometer": 0.2, "pyrometer": 0.1}[instrument]
             self.advance(state, duration)
             if instrument == "pyrometer":
                 noise = 0.4
@@ -291,15 +286,9 @@ class ThinFilmBench(Model):
             if instrument == "interferometer":
                 wavelength = 632.8
                 phase = (
-                    4.0
-                    * math.pi
-                    * self.effective_index(state)
-                    * state["thickness_nm"]
-                    / wavelength
+                    4.0 * math.pi * self.effective_index(state) * state["thickness_nm"] / wavelength
                 ) % (2.0 * math.pi)
-                visibility = math.exp(
-                    -((4.0 * math.pi * state["roughness_nm"] / wavelength) ** 2)
-                )
+                visibility = math.exp(-((4.0 * math.pi * state["roughness_nm"] / wavelength) ** 2))
                 return {
                     "phase": reading(
                         (phase + rng.gauss(0.0, 0.01)) % (2.0 * math.pi),

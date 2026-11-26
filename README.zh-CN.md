@@ -4,15 +4,15 @@
 
 [English](README.md) · [前沿实验室图谱](docs/lab-atlas.md) ·
 [研究契约](docs/research-contract.md) · [架构](docs/design.md) ·
-[Agent 与 RL 接口](docs/interfaces.md) · [贡献说明](CONTRIBUTING.md)
+[Agent 与 RL 接口](docs/interfaces.md) · [跨语言接口](docs/platform.md) · [贡献说明](CONTRIBUTING.md)
 
 Synthetic Lab 让人和 AI Agent 面对同一个实验现场：改变装置，等待物理状态演化，获取
 有噪声、有量程、有耗时的测量，从上次状态继续，或者从过去的现场分叉比较不同干预。
 实验时间、样品隐状态和随机状态都随会话持久保存。
 
-每个实验室现在不只暴露“能调用什么”，还暴露机器可读的**研究契约**：它能回答哪些
+实验室目录同时提供操作接口和机器可读的**研究契约**：它能回答哪些
 问题、可观测量与隐变量是什么、哪些动作构成干预、需要保持哪些物理关系、何时失效、
-处于什么保真层级、有哪些领域基线。这样可以明确区分真正的研究环境和一组可调用函数。
+处于什么保真层级、有哪些领域参考方法。Python、CLI 和 MCP 共用这份实验描述。
 
 ## 运行实验
 
@@ -65,7 +65,7 @@ with Lab("runs/research.sqlite") as lab:
 
 [前沿实验室图谱](docs/lab-atlas.md) 给出后续建设顺序：材料合成与催化、预测生物学、
 电化学能源、半导体与光子制造、科学成像、聚变、地球系统、制造装配和量子控制。新的
-领域通常应作为独立版本化包接入统一运行时与研究契约，而不是在核心仓库堆积浅层模型。
+领域作为独立安装包接入共同的运行时与研究接口。[领域包目录](labs/README.md) 列出安装方式。
 
 ## Agent、学习与数据
 
@@ -85,13 +85,17 @@ synthetic-lab --db runs/agent.sqlite mcp
 
 `runtime.py` 管理原子操作、会话、快照与分支；`research.py` 管理跨领域研究契约；
 `models/` 管理物理演化、仪器观测和模型范围；`integrations/` 连接 MCP、Gymnasium 与
-Agent Gym；`calibration.py` 从带单佝的观测建立模型配置；`labs/optical-metrology/` 提供
+Agent Gym；`calibration.py` 从带单位的观测建立模型配置；`labs/optical-metrology/` 提供
 独立安装的薄膜与显微实验室；`examples/` 给出完整实验；
 `tests/` 检查守恒关系、极限、持久化、隔离和真实接口往返。
 
+`spec/` 定义公共数据结构，`packages/protocol-ts/` 和 `crates/protocol/` 分别提供
+TypeScript 与 Rust 实现；两者读取由 Python 实验实际生成的数据。`sql/` 给出可执行的
+关系表结构，并测试它与运行时的创建、接续操作是否一致。
+
 在 EnvFoundry 中，IOP 负责真实仪器执行，领域仓库负责专业求解器，SeedEnv 负责依赖，
-Gym 负责任务与评价，数据系统消费实验轨迻。Synthetic Lab 负责模拟实验状态与观测。
-当前运行时是本地 Python + SQLite；跨语言服务边界应作为独立平台层建设，而不是复制
-科学模型。
+Gym 负责任务与评价，数据系统消费实验轨迹。Synthetic Lab 负责模拟实验状态与观测。
+当前运行时是本地 Python + SQLite，TypeScript 和 Rust 已实现数据接口；Web 工作台
+和持久求解服务仍是后续平台建设内容。科学方程由各领域包维护。
 
 MIT 许可证。

@@ -14,6 +14,7 @@ def state(model):
 def test_reaction_units_and_catalogue_contract():
     assert quantity({"value": 250, "unit": "mL"}, "L") == 0.25
     assert quantity({"value": 50, "unit": "kJ/mol"}, "J/mol") == 50000
+    assert quantity({"value": 0.1, "unit": "um"}, "nm") == pytest.approx(100)
     catalogue = {description["name"]: description for description in Lab.catalogue()}
     assert {"battery", "fiber", "reaction", "thermal"} <= set(catalogue)
     for name in ("battery", "fiber", "reaction", "thermal"):
@@ -89,3 +90,15 @@ def test_runtime_hides_species_state_and_preserves_branches():
             "temperature_setpoint_k",
             "thermal_protection",
         }
+
+
+def test_temperature_programmes_include_measurement_time_in_equal_budgets():
+    import runpy
+    from pathlib import Path
+
+    example = runpy.run_path(str(Path(__file__).parents[1] / "examples/optimize_reaction.py"))
+    with Lab(":memory:") as lab:
+        root = lab.create("reaction", seed=13)
+        for schedule in example["SCHEDULES"].values():
+            _, report = example["run_schedule"](root, schedule)
+            assert report["elapsed_s"] == pytest.approx(1220)
