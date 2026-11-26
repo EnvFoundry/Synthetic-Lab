@@ -4,7 +4,7 @@ Synthetic Lab should let a researcher investigate valuable phenomena for as long
 
 ## Current implementation
 
-Version 0.1 has three built-in analytical laboratories and one separately installable fluid laboratory. It provides local persistent simulation, historical branches, atomic operation retries, unit conversion, profile references, observation export, MCP stdio tools, a Gymnasium control environment and a Verifiable Agent Gym task. The repository includes a measured-input calibration function and a working policy-learning example. Model coefficients currently come from synthetic priors or explicitly supplied configurations.
+Version 0.2 has four built-in laboratories (fiber, thermal, battery and selective reaction), two optical-metrology laboratories (thin-film fabrication and fluorescence microscopy), a spectroscopic fed-batch bioreactor, and an independently packaged fluid-tank example. All eight expose research questions, instruments, physical relations and assumptions through the same catalogue. Persistent sessions, experiment branches, CLI, MCP, Gymnasium and Verifiable Agent Gym reuse the local runtime. JSON Schema, TypeScript and Rust describe the public data boundary and are exercised with live experimental output. Model coefficients currently come from synthetic priors or explicitly supplied configurations.
 
 ## Experiments that would extend its scientific value
 

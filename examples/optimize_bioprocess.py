@@ -14,6 +14,12 @@ SCHEDULES = {
 }
 
 
+def product_contrast(raman):
+    # Cancel the nominal substrate and biomass responses in bands 0, 1 and 3.
+    # The result is gain-dependent and is not a calibrated product concentration.
+    return raman[3] - raman[0] / 6.0 - 7.0 * raman[1] / 24.0
+
+
 def measure(session):
     od = session.act("read", instrument="od600")["observations"]["od600"]["value"]
     fluorescence = session.act("read", instrument="fluorescence")["observations"][
@@ -26,16 +32,24 @@ def measure(session):
         "reporter_fluorescence_count_per_s": fluorescence,
         "dissolved_oxygen_percent": oxygen,
         "raman_intensity": raman,
-        "product_sensitive_raman_score": raman[3] - 0.10 * raman[0],
+        "product_sensitive_raman_score": product_contrast(raman),
     }
 
 
 def run_schedule(root, schedule):
     experiment = root.fork()
+    start = experiment.status()["time_s"]
+    deadline = start
     for level, duration in schedule:
+        deadline += duration
         experiment.act("induction", level=level)
-        experiment.act("wait", seconds=duration)
-    return experiment, measure(experiment)
+        remaining = deadline - experiment.status()["time_s"]
+        if remaining < 0.0:
+            raise ValueError("Induction stages must include time for the control command")
+        experiment.act("wait", seconds=remaining)
+    result = measure(experiment)
+    result["elapsed_s"] = experiment.status()["time_s"] - start
+    return experiment, result
 
 
 def main():
@@ -65,7 +79,7 @@ def main():
         )
         report = {
             "source": "simulation",
-            "comparison": "common culture state after two hours of pre-growth",
+            "comparison": "common pre-grown culture and equal elapsed time including measurements",
             "objective": "maximize a product-sensitive Raman contrast from public measurements",
             "winner": winner,
             "sessions": sessions,

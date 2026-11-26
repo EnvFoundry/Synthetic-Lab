@@ -8,3 +8,5 @@ build/
 dist/
 runs/
 *.sqlite*
+node_modules/
+target/

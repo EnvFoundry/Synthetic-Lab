@@ -3,13 +3,16 @@
 import math
 
 from synthetic_lab.model import Model, Parameter, reading
-from synthetic_lab.research import ResearchContract
+
+from .contract import RESEARCH
+from .physics import advance, concentrations
 
 RAMAN_SHIFTS_CM = (820.0, 1005.0, 1125.0, 1450.0, 1660.0)
 
 
 class SpectroscopicBioreactor(Model):
     name = "spectroscopic-bioreactor"
+    version = "2"
     description = (
         "Schedule feed, aeration, temperature and optical induction while estimating a "
         "fed-batch culture from complementary optical measurements."
@@ -61,165 +64,10 @@ class SpectroscopicBioreactor(Model):
         "aeration": {"kla": Parameter("1/h", 0.0, 120.0)},
         "temperature": {"setpoint": Parameter("K", 290.0, 325.0)},
         "induction": {"level": Parameter(None, 0.0, 1.0)},
-        "read": {
-            "instrument": Parameter(
-                choices=("od600", "fluorescence", "raman", "optode")
-            )
-        },
+        "read": {"instrument": Parameter(choices=("od600", "fluorescence", "raman", "optode"))},
         "wait": {"seconds": Parameter("s", 0.0, 86400.0)},
     }
-    research = ResearchContract(
-        domains=(
-            "bioprocess engineering",
-            "synthetic biology",
-            "biomanufacturing",
-            "spectroscopy",
-        ),
-        phenomena=(
-            "fed-batch growth",
-            "substrate limitation",
-            "oxygen transfer",
-            "optical induction",
-            "reporter dynamics",
-            "metabolic burden",
-            "Raman mixture spectra",
-        ),
-        questions=(
-            (
-                "When should induction begin to maximize product-sensitive Raman signal "
-                "without sacrificing excessive biomass?"
-            ),
-            "How should feed and aeration be coordinated as oxygen demand rises?",
-            (
-                "Which combination of OD, fluorescence, Raman and oxygen measurements "
-                "best separates culture states?"
-            ),
-            (
-                "Can an induction schedule learned on one culture remain useful under "
-                "batch-to-batch kinetic variation?"
-            ),
-        ),
-        observables={
-            "od600": {
-                "unit": None,
-                "description": "Saturating optical-density estimate of biomass concentration.",
-            },
-            "reporter_fluorescence": {
-                "unit": "count/s",
-                "description": (
-                    "Reporter fluorescence proportional to biomass and expression state."
-                ),
-            },
-            "raman_intensity": {
-                "unit": "a.u.",
-                "description": (
-                    "Five-channel Raman spectrum mixing substrate, product and biomass."
-                ),
-            },
-            "dissolved_oxygen": {
-                "unit": "%",
-                "description": "Optical oxygen-sensor reading as percent air saturation.",
-            },
-        },
-        latent_variables={
-            "biomass_mass": {
-                "unit": "g",
-                "description": "Total viable biomass in the vessel.",
-            },
-            "substrate_mass": {
-                "unit": "g",
-                "description": "Remaining carbon-source mass.",
-            },
-            "product_mass": {
-                "unit": "g",
-                "description": "Accumulated target-product mass.",
-            },
-            "reporter_state": {
-                "unit": None,
-                "description": "Finite-response optical reporter expression state.",
-            },
-            "burden": {
-                "unit": None,
-                "description": "Reversible growth burden induced by production conditions.",
-            },
-        },
-        interventions=("feed", "aeration", "temperature", "induction"),
-        invariants=(
-            "Culture volume never exceeds the configured working volume.",
-            "Biomass, substrate and product masses remain nonnegative.",
-            (
-                "Substrate remaining plus cumulative substrate use equals initial "
-                "substrate plus supplied substrate."
-            ),
-        ),
-        validity_conditions=(
-            "Well-mixed fed-batch vessel with no liquid outflow.",
-            "One limiting carbon source and one lumped dissolved-oxygen state.",
-            (
-                "Optical signals follow fixed response coefficients over the represented "
-                "concentration range."
-            ),
-        ),
-        limitations=(
-            (
-                "No population heterogeneity, morphology, pH, acetate overflow or "
-                "explicit gas-phase dynamics."
-            ),
-            (
-                "Reporter and Raman coefficients are generic rather than "
-                "strain-specific measurements."
-            ),
-            (
-                "The model represents hours-scale process decisions rather than "
-                "intracellular molecular kinetics."
-            ),
-        ),
-        failure_conditions=(
-            "OD response compresses at high biomass and cannot identify biomass alone.",
-            "Reporter fluorescence confounds biomass amount with expression level.",
-            (
-                "Raman bands overlap and require multiple channels to separate "
-                "substrate, product and biomass contributions."
-            ),
-        ),
-        fidelity="reduced-order",
-        action_semantics={
-            "feed": {
-                "kind": "control",
-                "description": "Set concentrated substrate-feed rate.",
-            },
-            "aeration": {
-                "kind": "control",
-                "description": "Set the oxygen-transfer coefficient.",
-            },
-            "temperature": {
-                "kind": "control",
-                "description": "Set the vessel temperature target.",
-            },
-            "induction": {
-                "kind": "intervention",
-                "description": "Set normalized optical induction intensity.",
-            },
-            "read": {
-                "kind": "measurement",
-                "description": "Acquire one optical process measurement.",
-            },
-            "wait": {
-                "kind": "wait",
-                "description": "Advance culture dynamics without acquiring a measurement.",
-            },
-        },
-        reference_methods=(
-            "Monod kinetic fitting",
-            "oxygen-transfer balance",
-            "multivariate Raman regression",
-            "reporter-based induction timing",
-        ),
-        physical_counterpart=(
-            "A stirred fed-batch bioreactor with OD, fluorescence, Raman and "
-            "optical oxygen sensing"
-        ),
-    )
+    research = RESEARCH
 
     def initial(self, rng):
         if self.config["maximum_volume"] < self.config["initial_volume"]:
@@ -248,112 +96,10 @@ class SpectroscopicBioreactor(Model):
             "substrate_consumed_g": 0.0,
         }
 
-    def concentrations(self, state):
-        volume = state["volume_l"]
-        return (
-            state["biomass_g"] / volume,
-            state["substrate_g"] / volume,
-            state["product_g"] / volume,
-        )
-
-    def _rates(self, state):
-        biomass, substrate, _ = self.concentrations(state)
-        oxygen = state["oxygen_percent"]
-        temperature_factor = math.exp(
-            -(
-                (state["temperature_k"] - self.config["temperature_optimum"])
-                / self.config["temperature_width"]
-            )
-            ** 2
-        )
-        substrate_factor = (
-            substrate / (self.config["ks"] + substrate) if substrate > 0.0 else 0.0
-        )
-        oxygen_factor = oxygen / (self.config["ko"] + oxygen) if oxygen > 0.0 else 0.0
-        burden_factor = math.exp(-1.5 * state["burden"])
-        mu = (
-            self.config["mu_max"]
-            * state["growth_scale"]
-            * substrate_factor
-            * oxygen_factor
-            * temperature_factor
-            * burden_factor
-        )
-        product_factor = oxygen / (15.0 + oxygen) if oxygen > 0.0 else 0.0
-        qp = (
-            self.config["qp_max"]
-            * state["product_scale"]
-            * state["reporter"]
-            * product_factor
-            * math.exp(-0.6 * state["burden"])
-        )
-        return mu, qp, biomass
-
-    def _step(self, state, seconds):
-        dt_h = seconds / 3600.0
-        if dt_h <= 0.0:
-            return
-
-        thermal_decay = math.exp(-seconds / self.config["thermal_tau"])
-        state["temperature_k"] = state["temperature_setpoint_k"] + (
-            state["temperature_k"] - state["temperature_setpoint_k"]
-        ) * thermal_decay
-
-        reporter_decay = math.exp(-dt_h / self.config["reporter_tau"])
-        state["reporter"] = state["induction"] + (
-            state["reporter"] - state["induction"]
-        ) * reporter_decay
-
-        target_burden = min(
-            1.0,
-            0.75 * state["induction"]
-            + 0.35 * max(0.0, 30.0 - state["oxygen_percent"]) / 30.0,
-        )
-        burden_decay = math.exp(-dt_h / self.config["burden_tau"])
-        state["burden"] = target_burden + (
-            state["burden"] - target_burden
-        ) * burden_decay
-
-        room = max(0.0, self.config["maximum_volume"] - state["volume_l"])
-        feed_volume = min(room, state["feed_rate_l_h"] * dt_h)
-        feed_substrate = feed_volume * self.config["feed_substrate"]
-        state["volume_l"] += feed_volume
-        state["substrate_g"] += feed_substrate
-        state["substrate_fed_g"] += feed_substrate
-        if room <= 1e-12:
-            state["feed_rate_l_h"] = 0.0
-
-        mu, qp, biomass_concentration = self._rates(state)
-        potential_growth = state["biomass_g"] * (math.exp(mu * dt_h) - 1.0)
-        growth_substrate = potential_growth / self.config["yield_xs"]
-        potential_product = qp * state["biomass_g"] * dt_h
-        product_substrate = potential_product / self.config["yield_ps"]
-        required = growth_substrate + product_substrate
-        if required > state["substrate_g"] and required > 0.0:
-            scale = state["substrate_g"] / required
-            potential_growth *= scale
-            potential_product *= scale
-            growth_substrate *= scale
-            product_substrate *= scale
-
-        consumed = growth_substrate + product_substrate
-        state["biomass_g"] += potential_growth
-        state["product_g"] += potential_product
-        state["substrate_g"] = max(0.0, state["substrate_g"] - consumed)
-        state["substrate_consumed_g"] += consumed
-
-        transfer = state["kla_h"] * (100.0 - state["oxygen_percent"])
-        demand = self.config["oxygen_uptake"] * mu * biomass_concentration
-        state["oxygen_percent"] += (transfer - demand) * dt_h
-        state["oxygen_percent"] = max(0.0, min(100.0, state["oxygen_percent"]))
-        state["time_s"] += seconds
+    concentrations = staticmethod(concentrations)
 
     def advance(self, state, seconds):
-        remaining = seconds
-        while remaining > 1e-12:
-            step = min(20.0, remaining)
-            self._step(state, step)
-            remaining -= step
+        advance(self.config, state, seconds)
 
     def _raman(self, state):
         biomass, substrate, product = self.concentrations(state)
@@ -365,8 +111,7 @@ class SpectroscopicBioreactor(Model):
             (0.030, 0.100, 0.090),
         )
         return [
-            state["spectral_gain"]
-            * (row[0] * substrate + row[1] * product + row[2] * biomass)
+            state["spectral_gain"] * (row[0] * substrate + row[1] * product + row[2] * biomass)
             for row in response
         ]
 
@@ -407,12 +152,7 @@ class SpectroscopicBioreactor(Model):
                     )
                 }
             if instrument == "fluorescence":
-                ideal = (
-                    24000.0
-                    * biomass
-                    * state["reporter"]
-                    * state["fluorescence_gain"]
-                )
+                ideal = 24000.0 * biomass * state["reporter"] * state["fluorescence_gain"]
                 noise = max(20.0, math.sqrt(max(ideal, 1.0)))
                 return {
                     "reporter_fluorescence": reading(
@@ -440,10 +180,7 @@ class SpectroscopicBioreactor(Model):
                 }
 
             noise = 0.01
-            values = [
-                max(0.0, value + rng.gauss(0.0, noise))
-                for value in self._raman(state)
-            ]
+            values = [max(0.0, value + rng.gauss(0.0, noise)) for value in self._raman(state)]
             return {
                 "raman_intensity": {
                     "value": values,

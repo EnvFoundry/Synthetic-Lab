@@ -37,7 +37,8 @@ def _variables(name, values, *, allow_empty=False):
         unit = specification.get("unit")
         if unit is not None and (not isinstance(unit, str) or not unit.strip()):
             raise ValueError(f"{name}.{variable}.unit must be a string or null")
-        result[variable] = dict(specification)
+        result[variable] = copy.deepcopy(dict(specification))
+        result[variable]["unit"] = unit
     return result
 
 
@@ -71,11 +72,7 @@ class ResearchContract:
         validity = _strings("validity_conditions", self.validity_conditions)
         limitations = _strings("limitations", self.limitations)
         failures = _strings("failure_conditions", self.failure_conditions, allow_empty=True)
-        if isinstance(self.reference_methods, (str, bytes)):
-            raise ValueError("reference_methods must be a sequence of strings")
-        references = tuple(self.reference_methods)
-        if any(not isinstance(value, str) or not value.strip() for value in references):
-            raise ValueError("reference_methods must contain nonempty strings")
+        references = _strings("reference_methods", self.reference_methods, allow_empty=True)
         if self.fidelity not in FIDELITY_LEVELS:
             raise ValueError(f"fidelity must be one of {sorted(FIDELITY_LEVELS)}")
         if not set(interventions) <= action_names:
@@ -99,7 +96,7 @@ class ResearchContract:
                 )
             if not isinstance(description, str) or not description.strip():
                 raise ValueError(f"action_semantics.{action} requires a description")
-            semantics[action] = dict(specification)
+            semantics[action] = copy.deepcopy(dict(specification))
         if self.physical_counterpart is not None and (
             not isinstance(self.physical_counterpart, str) or not self.physical_counterpart.strip()
         ):

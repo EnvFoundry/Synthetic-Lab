@@ -13,6 +13,7 @@ CHANNELS = {
 
 class FluorescenceMicroscopy(Model):
     name = "fluorescence-microscopy"
+    version = "2"
     description = (
         "Choose focus, field position, spectral channel and photon dose while the sample drifts "
         "and fluorophores bleach."
@@ -108,7 +109,9 @@ class FluorescenceMicroscopy(Model):
         ),
         validity_conditions=(
             "Sparse independent emitters imaged by a Gaussian approximation to the PSF.",
-            "Uniform illumination and a planar sample over one field of view.",
+            "Uniform illumination across the modeled planar specimen during acquisition only.",
+            "Camera and photometer share the same finite collection field.",
+            "Emitter positions are evaluated at the acquisition midpoint.",
             "Gaussian approximation to photon and read noise.",
         ),
         limitations=(
@@ -166,6 +169,12 @@ class FluorescenceMicroscopy(Model):
         ),
     )
 
+    def __init__(self, config=None):
+        super().__init__(config)
+        for key in ("pixels", "camera_max"):
+            if not float(self.config[key]).is_integer():
+                raise ValueError(f"{key} must be an integer")
+
     def initial(self, rng):
         variation = self.config["variation"]
         emitters = []
@@ -212,46 +221,48 @@ class FluorescenceMicroscopy(Model):
         diffraction = 0.21 * wavelength / self.config["numerical_aperture"]
         defocus = state["focus_z_um"] - state["true_focus_um"]
         sigma_um = math.sqrt(diffraction**2 + (0.38 * defocus) ** 2)
-        return max(0.45, sigma_um / self.config["pixel_size"])
+        return sigma_um / self.config["pixel_size"]
 
-    def _expected_image(self, state):
+    def _expected_image(self, state, *, duration=None, background=True):
         pixels = int(self.config["pixels"])
         sigma = self._sigma_pixels(state)
-        exposure = state["exposure_s"]
+        exposure = state["exposure_s"] if duration is None else duration
         illumination = state["illumination_mw"]
-        expected = [
-            [self.config["background_rate"] * exposure + state["offset"] for _ in range(pixels)]
-            for _ in range(pixels)
-        ]
+        decay_rate = self.config["bleach"] * CHANNELS[state["channel"]]["bleach_scale"]
+        decay_rate *= illumination
+        active_time = -math.expm1(-decay_rate * exposure) / decay_rate if decay_rate else exposure
+        baseline = (
+            self.config["background_rate"] * exposure + state["offset"] if background else 0.0
+        )
+        expected = [[baseline for _ in range(pixels)] for _ in range(pixels)]
         center = (pixels - 1) / 2.0
-        normalizer = 2.0 * math.pi * sigma**2
+        scale = math.sqrt(2.0) * sigma
         for emitter in state["emitters"]:
-            x = (
-                emitter["x_um"]
-                + state["drift_x_um"]
-                - state["stage_x_um"]
-            ) / self.config["pixel_size"] + center
-            y = (
-                emitter["y_um"]
-                + state["drift_y_um"]
-                - state["stage_y_um"]
-            ) / self.config["pixel_size"] + center
+            x = (emitter["x_um"] + state["drift_x_um"] - state["stage_x_um"]) / self.config[
+                "pixel_size"
+            ] + center
+            y = (emitter["y_um"] + state["drift_y_um"] - state["stage_y_um"]) / self.config[
+                "pixel_size"
+            ] + center
             photons = (
                 illumination
-                * exposure
+                * active_time
                 * emitter[state["channel"]]
                 * emitter["remaining"]
                 * state["gain"]
             )
-            radius = max(2, math.ceil(4.0 * sigma))
-            for row in range(max(0, int(y) - radius), min(pixels, int(y) + radius + 1)):
-                for column in range(
-                    max(0, int(x) - radius), min(pixels, int(x) + radius + 1)
-                ):
-                    distance = (row - y) ** 2 + (column - x) ** 2
-                    expected[row][column] += photons * math.exp(
-                        -distance / (2.0 * sigma**2)
-                    ) / normalizer
+            # Integrate over pixel area; light outside the detector is not renormalized.
+            horizontal = [
+                0.5 * (math.erf((column + 0.5 - x) / scale) - math.erf((column - 0.5 - x) / scale))
+                for column in range(pixels)
+            ]
+            vertical = [
+                0.5 * (math.erf((row + 0.5 - y) / scale) - math.erf((row - 0.5 - y) / scale))
+                for row in range(pixels)
+            ]
+            for row, row_weight in enumerate(vertical):
+                for column, column_weight in enumerate(horizontal):
+                    expected[row][column] += photons * row_weight * column_weight
         return expected
 
     def _bleach(self, state, dose_mj):
@@ -283,12 +294,10 @@ class FluorescenceMicroscopy(Model):
             if instrument == "photometer":
                 duration = 0.01
                 self.advance(state, duration / 2.0)
-                total = sum(
-                    emitter[state["channel"]] * emitter["remaining"]
-                    for emitter in state["emitters"]
-                )
-                rate = state["illumination_mw"] * total * state["gain"]
-                noise = math.sqrt(max(rate * duration, 1.0)) / duration
+                image = self._expected_image(state, duration=duration, background=False)
+                photons = sum(map(sum, image))
+                rate = photons / duration
+                noise = math.sqrt(photons + self.config["read_noise"] ** 2) / duration
                 measured = max(0.0, rate + rng.gauss(0.0, noise))
                 dose = state["illumination_mw"] * duration
                 self._bleach(state, dose)
@@ -312,7 +321,9 @@ class FluorescenceMicroscopy(Model):
             for line in expected:
                 row = []
                 for value in line:
-                    standard = math.sqrt(value + self.config["read_noise"] ** 2)
+                    standard = math.sqrt(
+                        max(0.0, value - state["offset"]) + self.config["read_noise"] ** 2
+                    )
                     count = round(rng.gauss(value, standard))
                     clipped += count >= maximum
                     row.append(max(0, min(maximum, count)))

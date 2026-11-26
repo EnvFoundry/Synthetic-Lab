@@ -28,8 +28,8 @@ device credentials and unpublished sample information from shared records.
 python -m pip install -e '.[test,rl,agent]'
 python -m pip install -e examples/tank-package
 python -m pip install -e labs/optical-metrology
-ruff check src examples tests
-ruff format --check src examples tests
+ruff check src labs examples scripts tests
+ruff format --check src labs examples scripts tests
 pytest -q
 python examples/optimize_reaction.py
 python -m build
@@ -38,3 +38,5 @@ python -m build
 The Verifiable Agent Gym integration test runs when its package is installed. CI installs a
 pinned upstream revision, starts a real MCP stdio server and client, checks Gymnasium environments
 and executes the reference experiments.
+
+For protocol changes, also run the live cross-language examples in [spec/README.md](spec/README.md).
