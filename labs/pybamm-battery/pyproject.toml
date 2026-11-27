@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
   "envfoundry-synthetic-lab>=0.2,<0.3",
+  "numpy>=1.26",
   "pybamm>=26.11,<27",
 ]
 

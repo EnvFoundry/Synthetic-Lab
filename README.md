@@ -9,9 +9,9 @@
 [External data](docs/artifacts.md) · [Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
-wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
+wait for physical state to evolve, acquire observations, continue later, or fork
 an earlier state to compare interventions. Sessions retain time, hidden specimen state and random
-state across process restarts.
+state across process restarts. Each laboratory declares its measurement response, noise and time cost.
 
 A laboratory exposes controls and a machine-readable **research contract**: the questions
 it can investigate, observables, latent variables, interventions, invariants, validity conditions,
@@ -85,6 +85,8 @@ Mature numerical software remains in its own domain package. Synthetic Lab trans
 operations into solver inputs and selected solver variables into observations. The PyBaMM battery
 package is the first implementation: one current protocol can run through SPM, SPMe and DFN without
 copying their electrochemical equations into this repository.
+Its reads are noiseless cached predictions with no time advance. Current steps end at their requested
+duration or the cell parameter set's voltage cut-off, after which rest and charging can continue.
 
 Existing sessions retain their public action descriptions. A client can submit operations and
 read configurations without installing the domain solver. Creation and local `act` calls require
@@ -114,10 +116,11 @@ and held-out predictive performance. [Reaction model](docs/reaction-lab.md) ·
 [Bioprocess spectroscopy](docs/spectroscopic-bioprocess.md) ·
 [PyBaMM battery laboratories](labs/pybamm-battery/README.md) · [Reference models](docs/models.md)
 
-The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
+The [frontier laboratory atlas](docs/lab-atlas.md) describes the long-term research scope: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
 fabrication, scientific imaging, fusion, Earth systems, manufacturing and quantum control.
-Domains use independently installable packages sharing the same runtime and contract.
+The [development direction](docs/roadmap.md) sets the current priorities. Domains use independently
+installable packages sharing the same runtime and contract.
 The [domain package catalogue](labs/README.md) lists the available installations.
 
 ## Agents, learning and data

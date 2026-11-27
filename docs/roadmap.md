@@ -33,6 +33,10 @@ observations, units and continuation. It does not copy the upstream solver into 
 
 Strong next integrations are:
 
+Wave optics is next: use one material, geometry, source and detector description across the solver
+family. Match a common spectrum before adding an adaptive spectral or inverse-design task. Numerical
+convergence, measured detector response and experimental agreement are distinct parts of that work.
+
 | Domain | Existing software to reuse | First consequential experiment |
 |---|---|---|
 | Wave optics and photonics | Meep, RCWA or an equivalent Maxwell solver | Compare adaptive spectral measurements and inverse designs across transfer-matrix, RCWA and FDTD fidelity |
@@ -41,9 +45,10 @@ Strong next integrations are:
 | Molecular systems | OpenMM or LAMMPS | Choose restrained simulations that separate competing molecular states under a compute budget |
 | Quantum control | QuTiP | Infer drift and design pulses that remain effective on held-out device parameters |
 
-A new adapter should first make one shared intervention executable across at least two fidelity levels.
-Broader task generation follows after that experiment exposes a meaningful model or measurement
-choice.
+An adapter should make a consequential intervention executable and support continuation after a
+physical termination. When comparable model families exist, run the same intervention at multiple
+fidelities. Task generation should follow a meaningful model or measurement choice; a useful solver
+integration does not require inventing a second model solely to populate a comparison.
 
 ## Experiments that would extend its scientific value
 

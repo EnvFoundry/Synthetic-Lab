@@ -18,6 +18,8 @@ def export():
             choices = [field.get("enum", [field.get("minimum")]) for field in fields.values()]
             for values in itertools.product(*choices):
                 records.append({"result": session.act("read", **dict(zip(fields, values)))})
+            if description["actions"].get("trace") == {}:
+                records.append({"result": session.act("trace")})
     return records
 
 

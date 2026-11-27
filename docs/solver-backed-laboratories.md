@@ -5,23 +5,12 @@ between persistent experimental operations and an established solver. The common
 session identity, simulation time, branching, queued execution, observations and large data; the
 solver retains its equations, discretisation and numerical methods.
 
-```text
-researcher or agent
-        |
-        v
-Synthetic Lab operation
-        |
-        v
-domain package adapter
-        |
-        +-- PyBaMM / Cantera / OpenFOAM / Meep / OpenMM / other solver
-        |
-        v
-selected physical variables
-        |
-        v
-instrument-like observations and external data
-```
+| Owner | Responsibility |
+|---|---|
+| Researcher or task | Scientific question, interventions, measurement choices and budget |
+| Synthetic Lab runtime | Sessions, ordered operations, committed state, branches and external data |
+| Domain adapter | Persistent experimental object, solver inputs, continuation, units and observation formation |
+| Scientific software | Equations, parameterisation, spatial discretisation and numerical integration |
 
 A useful adapter must add more than a subprocess call. It defines:
 
@@ -43,6 +32,20 @@ This gives process-independent continuation without serialising solver internals
 short and medium protocols. Long cycling studies should add a solver-native restart representation
 stored as an external experiment object, while preserving the same public operations.
 
+The adapter must distinguish a requested duration from actual elapsed time. A physical termination
+can complete a shorter operation, after which later interventions must start from that endpoint.
+Replaying an earlier cut-off must not silently discard the new intervention. Adjacent operations
+retain their boundaries so that a later call does not change previously reported observations.
+
+Solver output and instrument response are separate scientific choices. The PyBaMM package exposes
+noiseless endpoint predictions and trajectories; it declares zero acquisition time and a derived
+coulomb-count SOC. A device-specific sensor model can add bandwidth, calibration and noise without
+changing PyBaMM's electrochemistry. More elaborate equations alone do not establish agreement with
+a real instrument.
+
 A second solver should be added only when it exercises a materially different scientific structure.
-Strong next candidates are wave optics through Meep or RCWA, reacting systems through Cantera, and
-continuum transport through FEniCS or OpenFOAM.
+The next priority is wave optics: represent one specimen, material dispersion, illumination and
+detector geometry consistently across transfer-matrix, RCWA and Meep calculations. Compare the
+same spectrum first, including power normalization and numerical convergence; then reuse it in
+an adaptive measurement or inverse-design experiment. Reacting systems through Cantera and continuum
+transport through FEniCS or OpenFOAM are later candidates.

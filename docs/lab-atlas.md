@@ -3,11 +3,12 @@
 Synthetic Lab should not maximize the number of domains. It should concentrate on experimental
 systems where causal intervention is expensive, slow or scarce; where simulation can expose a
 useful hidden state; and where a model can be challenged by measurements. The following atlas is
-a build order, not a list of folders to create at once.
+a long-term research map. The [development direction](roadmap.md) defines the current implementation
+order; the [package catalogue](../labs/README.md) lists what can be installed now.
 
 ## Highest-leverage laboratory families
 
-| Priority | Laboratory family | Questions worth making executable | Minimum useful implementation |
+| Family | Laboratory family | Questions worth making executable | Minimum useful implementation |
 |---|---|---|---|
 | 1 | Materials synthesis and catalysis | Which composition, process and temperature path produces a target phase or property? Which measurement best distinguishes competing mechanisms? | Reaction/process state, synthesis actions, spectroscopy or diffraction observations, failed products, active experiment design and held-out recipes |
 | 2 | Predictive biology and bioprocess | How does a cell population respond to a perturbation? Which intervention changes phenotype while preserving viability? | Cell-state dynamics, perturbations, batch effects, partial assays, dose and time, population variability and out-of-distribution perturbations |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pybamm
 
 from synthetic_lab.model import Model, Parameter, reading
@@ -25,6 +26,16 @@ def _finite_series(values, name):
     if not result or any(not math.isfinite(value) for value in result):
         raise ValueError(f"PyBaMM returned a non-finite or empty {name} series")
     return result
+
+
+class _OperationCallbacks(pybamm.callbacks.Callback):
+    """A partial experiment after a solver failure cannot complete an operation."""
+
+    def on_experiment_error(self, logs):
+        raise logs["error"]
+
+    def on_experiment_infeasible_event(self, logs):
+        raise pybamm.SolverError(f"Model stopped outside the cycler limits: {logs['termination']}")
 
 
 def _contract(model_family, represented_physics):
@@ -56,7 +67,7 @@ def _contract(model_family, represented_physics):
             },
             "state_of_charge": {
                 "unit": None,
-                "description": "Initial state of charge minus net discharge capacity divided by nominal capacity.",
+                "description": "Unclipped coulomb-count estimate: initial SOC minus net discharge capacity divided by nominal capacity; not a direct sensor reading.",
             },
             "discharge_capacity": {
                 "unit": "A.h",
@@ -65,6 +76,10 @@ def _contract(model_family, represented_physics):
             "battery_trace": {
                 "unit": None,
                 "description": "Time-resolved current, voltage, temperature, capacity and state-of-charge series.",
+            },
+            "solver_termination": {
+                "unit": None,
+                "description": "Initial state, completed duration or voltage cut-off at the solved endpoint.",
             },
         },
         latent_variables={
@@ -80,15 +95,12 @@ def _contract(model_family, represented_physics):
                 "unit": "V",
                 "description": "Electrode kinetic and transport overpotentials internal to the solver.",
             },
-            "initial_state_of_charge": {
-                "unit": None,
-                "description": "Initial lithium inventory supplied when the simulation is created.",
-            },
         },
         interventions=("step",),
         invariants=(
             "Simulation time is monotone and equals the completed PyBaMM experiment duration.",
-            "State of charge remains within zero and one for completed operating points.",
+            "Net discharge capacity is the time integral of current, including negative charging current.",
+            "Each current segment ends at its requested duration or the parameter set's directional voltage cut-off.",
             "The same parameter set and current history are replayed when a persisted experiment continues.",
         ),
         validity_conditions=(
@@ -100,9 +112,11 @@ def _contract(model_family, represented_physics):
             "The package does not include degradation, plating, cracking or three-dimensional current-collector effects.",
             "Model state is reconstructed from the committed current protocol when a later operation runs.",
             "Generic parameter values are not a calibration of a named physical cell.",
+            "Reads expose noiseless cached solver outputs with no acquisition delay; no detector response is modelled.",
+            "Coulomb-count SOC uses nominal capacity and can leave zero to one; it is not clipped or a concentration field.",
         ),
         failure_conditions=(
-            "A voltage or concentration event stops the requested current step before its nominal duration.",
+            "A numerical failure or a model event outside the cycler voltage limits prevents the operation from completing.",
             "The requested protocol lies outside the numerical or parameter range of the selected model.",
             "A scientific conclusion depends on effects omitted by the selected SPM, SPMe or DFN representation.",
         ),
@@ -110,11 +124,11 @@ def _contract(model_family, represented_physics):
         action_semantics={
             "step": {
                 "kind": "intervention",
-                "description": "Apply a constant-current segment for a finite duration and solve the complete committed protocol.",
+                "description": "Apply current until the requested duration or directional voltage cut-off. Replay prior segments unchanged; record actual elapsed time.",
             },
             "read": {
                 "kind": "measurement",
-                "description": "Read cached electrical, thermal or state measurements at the latest solved endpoint.",
+                "description": "Read cached electrical, thermal or derived state outputs without advancing time, including the initial open-circuit state.",
             },
             "trace": {
                 "kind": "measurement",
@@ -132,6 +146,8 @@ def _contract(model_family, represented_physics):
             "solver_backend": "PyBaMM",
             "solver_model": model_family,
             "parameter_set": _PARAMETER_SET,
+            "observation_model": "noiseless solver outputs; instantaneous cached reads",
+            "continuation": "replay unchanged current segments with their voltage terminations",
             "represented_physics": list(represented_physics),
             "upstream_project": "pybamm-team/PyBaMM",
         },
@@ -141,6 +157,7 @@ def _contract(model_family, represented_physics):
 class PyBaMMBatteryLab(Model):
     """Shared implementation for one PyBaMM lithium-ion model family."""
 
+    version = "2"
     model_family = ""
     represented_physics = ()
     defaults = {
@@ -178,8 +195,9 @@ class PyBaMMBatteryLab(Model):
         }
 
     def advance(self, state, seconds):
-        self._append_step(state, 0.0, seconds)
-        self._solve(state)
+        if seconds > 0:
+            self._append_step(state, 0.0, seconds)
+            self._solve(state)
 
     def _model(self):
         options = {"thermal": "lumped"}
@@ -201,44 +219,60 @@ class PyBaMMBatteryLab(Model):
         return values
 
     def _append_step(self, state, current, seconds):
-        current = float(current)
-        seconds = float(seconds)
-        if state["protocol"] and state["protocol"][-1]["current_a"] == current:
-            state["protocol"][-1]["seconds"] += seconds
-        else:
-            state["protocol"].append({"current_a": current, "seconds": seconds})
+        # Preserve operation boundaries, including a prior segment's cut-off.
+        state["protocol"].append({"current_a": float(current), "seconds": float(seconds)})
 
-    def _experiment(self, protocol):
+    def _experiment(self, protocol, parameters):
         steps = []
         sample_period = self.config["sample_period"]
         for segment in protocol:
             duration = segment["seconds"]
+            current = segment["current_a"]
+            termination = None
+            if current != 0:
+                bound = "Lower" if current > 0 else "Upper"
+                termination = f"{parameters[f'{bound} voltage cut-off [V]']} V"
             steps.append(
                 pybamm.step.current(
-                    segment["current_a"],
+                    current,
                     duration=duration,
                     period=min(sample_period, duration),
                     temperature=self.config["ambient_temperature"],
+                    termination=termination,
+                    skip_ok=False,
                 )
             )
         return pybamm.Experiment(steps, temperature=self.config["ambient_temperature"])
 
     def _solve(self, state):
-        if not state["protocol"]:
-            self._append_step(state, 0.0, min(1.0, self.config["sample_period"]))
-
         parameters = self._parameters()
         simulation = pybamm.Simulation(
             self._model(),
             parameter_values=parameters,
-            experiment=self._experiment(state["protocol"]),
+            experiment=self._experiment(state["protocol"], parameters),
         )
         solution = simulation.solve(
             initial_soc=self.config["initial_soc"],
             calc_esoh=False,
             showprogress=False,
+            callbacks=_OperationCallbacks(),
         )
+        self._store_solution(state, solution, parameters)
 
+    def _initial_solution(self, state):
+        # Solve the initial algebraic constraints without integrating a time interval.
+        parameters = self._parameters()
+        parameters.update({"Current function [A]": 0.0})
+        simulation = pybamm.Simulation(self._model(), parameter_values=parameters)
+        simulation.build(initial_soc=self.config["initial_soc"])
+        model = simulation.built_model
+        simulation.solver.set_up(model)
+        initial_state = simulation.solver.calculate_consistent_state(model)[0]
+        solution = pybamm.Solution(np.array([0.0]), initial_state, model, {})
+        self._store_solution(state, solution, parameters)
+        state["termination"] = "initial state"
+
+    def _store_solution(self, state, solution, parameters):
         time_s = _finite_series(solution.t, "time")
         current_a = _finite_series(solution["Current [A]"].entries, "current")
         voltage_v = _finite_series(solution["Terminal voltage [V]"].entries, "voltage")
@@ -250,23 +284,20 @@ class PyBaMMBatteryLab(Model):
             solution["Discharge capacity [A.h]"].entries,
             "discharge capacity",
         )
-        sample_count = min(
-            len(time_s),
-            len(current_a),
-            len(voltage_v),
-            len(temperature_k),
-            len(capacity_ah),
-        )
-        time_s = time_s[-sample_count:]
-        current_a = current_a[-sample_count:]
-        voltage_v = voltage_v[-sample_count:]
-        temperature_k = temperature_k[-sample_count:]
-        capacity_ah = capacity_ah[-sample_count:]
+        if any(
+            length != len(time_s)
+            for length in (
+                len(current_a),
+                len(voltage_v),
+                len(temperature_k),
+                len(capacity_ah),
+            )
+        ):
+            raise ValueError("PyBaMM outputs do not share the same time axis")
 
         nominal_capacity = float(parameters["Nominal cell capacity [A.h]"])
         state_of_charge = [
-            max(0.0, min(1.0, self.config["initial_soc"] - capacity / nominal_capacity))
-            for capacity in capacity_ah
+            self.config["initial_soc"] - capacity / nominal_capacity for capacity in capacity_ah
         ]
         state["time_s"] = time_s[-1]
         state["termination"] = str(solution.termination)
@@ -289,7 +320,7 @@ class PyBaMMBatteryLab(Model):
 
     def _ensure_solution(self, state):
         if state["endpoint"] is None:
-            self._solve(state)
+            self._initial_solution(state)
 
     def _endpoint_observations(self, state, instrument):
         endpoint = state["endpoint"]
@@ -306,7 +337,9 @@ class PyBaMMBatteryLab(Model):
         if instrument in ("state", "summary"):
             observations.update(
                 {
-                    "state_of_charge": reading(endpoint["state_of_charge"], None),
+                    "state_of_charge": reading(
+                        endpoint["state_of_charge"], None, method="nominal-capacity coulomb count"
+                    ),
                     "discharge_capacity": reading(endpoint["discharge_capacity_ah"], "A.h"),
                 }
             )
