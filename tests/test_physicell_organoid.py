@@ -16,7 +16,7 @@ FAST_CONFIG = {
     "resistant_fraction_sd": 0.0,
     "patient_variation": 0.0,
     "diffusion_dt_min": 0.08,
-    "omp_threads": 2,
+    "omp_threads": 1,
     "solver_timeout_s": 180.0,
 }
 
@@ -46,7 +46,40 @@ def test_treatment_changes_the_same_seeded_organoid_response():
         assert baseline["total_cells"]["value"] > 0
         assert response["total_cells"]["value"] > 0
         assert response["mean_damage"]["value"] > baseline["mean_damage"]["value"]
-        assert response["viable_fraction"]["value"] <= baseline["viable_fraction"]["value"]
+        assert response["viable_cells"]["value"] < baseline["viable_cells"]["value"]
+
+
+def test_resistant_labels_survive_equal_repair_rates_and_matched_forks():
+    with Lab(":memory:", artifact_threshold=None) as lab:
+        root = lab.create(
+            "physicell-tumor-organoid",
+            seed=17,
+            config={
+                **FAST_CONFIG,
+                "sensitive_repair_rate": 0,
+                "resistant_repair_ratio": 1,
+                "resistant_fraction_mean": 0.5,
+            },
+        )
+        maps = []
+        for _ in range(2):
+            assay = root.fork()
+            result = assay.act(
+                "expose",
+                concentration=0,
+                pre_culture_hours=0.001,
+                exposure_hours=1.001,
+                recovery_hours=0.003,
+            )
+            assert result["end_s"] == pytest.approx(1.005 * 3600)
+            cells = assay.act("snapshot")["observations"]["cell_map"]["value"]
+            assert set(cells["resistant"]) == {0, 1}
+            viable_resistant = sum(
+                r and not d for r, d in zip(cells["resistant"], cells["dead"], strict=True)
+            )
+            assert result["observations"]["resistant_viable_cells"]["value"] == viable_resistant
+            maps.append(cells)
+        assert maps[0] == maps[1]
 
 
 def test_worker_executes_assay_and_cell_map_uses_external_storage(tmp_path):

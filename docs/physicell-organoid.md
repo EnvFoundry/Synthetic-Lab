@@ -27,6 +27,26 @@ equivalent diameter, mean damage and mean local therapeutic concentration. `snap
 cell-resolved final map and therefore uses the repository's external data layer when it exceeds the
 configured threshold.
 
+Treatment response uses `viable_cells / untreated_viable_cells` at the same endpoint. The fraction
+of remaining cells that are alive can increase after dead cells are cleared, even while live burden
+falls. The example reports both counts and composition; its scalar weights are illustrative.
+Zero-population fractions and means are reported as zero, with the population counts alongside them.
+`equivalent_diameter` is the origin-centred bounding diameter, not an area-equivalent diameter.
+
+Resistance is an inherited cell label, independent of the numerical repair rate. Damage obeys
+`dD/dt = damage_rate * concentration - repair_rate * D`. The apoptosis hazard is
+`drug_death_rate * D / damage_scale`, with a common explicit `damage_scale` (default 8).
+This replaces the upstream static value derived from whichever cell happened to update first.
+The event probability over an interval is `1 - exp(-hazard * dt)`.
+
+Each `expose` executes a complete assay. Endpoint reads and snapshots expose ideal simulated cell
+states without an instrument noise model; they cannot interrupt treatment. Default one-thread runs
+repeat matched protocols and seeds; multiple OpenMP threads can change the stochastic trajectory.
+One paired draw is an example, not an estimate of treatment variability across specimens.
+
+Model 2 corrects phenotype labels, death scaling and exposure timing. Stored model-1 results remain
+readable; further model-1 operations require the original implementation and executable.
+
 ## Interpretation
 
 The model can separate three causes of weak apparent response:

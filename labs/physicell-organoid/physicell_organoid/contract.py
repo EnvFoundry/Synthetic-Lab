@@ -25,6 +25,14 @@ def contract():
             "Which measurements distinguish poor penetration from intrinsic resistance?",
         ),
         observables={
+            "viable_cells": {
+                "unit": "count",
+                "description": "Absolute live tumor count; normalize to a matched untreated well for treatment response.",
+            },
+            "resistant_viable_cells": {
+                "unit": "count",
+                "description": "Live cells carrying the inherited resistant phenotype label.",
+            },
             "viable_fraction": {
                 "unit": None,
                 "description": "Fraction of final tumor cells that are not in a death program.",
@@ -43,7 +51,7 @@ def contract():
             },
             "resistant_viable_fraction": {
                 "unit": None,
-                "description": "Fraction of viable cells assigned the high-repair treatment phenotype.",
+                "description": "Fraction of viable cells carrying the seeded resistant phenotype label.",
             },
             "equivalent_diameter": {
                 "unit": "um",
