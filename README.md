@@ -4,6 +4,7 @@
 
 [中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
 [Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
+[Solver-backed laboratories](docs/solver-backed-laboratories.md) ·
 [Agent and RL interfaces](docs/interfaces.md) · [Language interfaces](docs/platform.md) ·
 [External data](docs/artifacts.md) · [Contribute](CONTRIBUTING.md)
 
@@ -32,6 +33,8 @@ python examples/coat_thin_film.py
 python examples/adaptive_microscopy.py
 python -m pip install -e labs/spectroscopic-bioprocess
 python examples/optimize_bioprocess.py
+python -m pip install -e labs/pybamm-battery
+python examples/compare_pybamm_models.py
 ```
 
 ```python
@@ -74,7 +77,14 @@ process without holding the database write lock. Operations on one session remai
 different sessions can run concurrently. Workers load only the laboratories installed in their own
 environment.
 
-Large images, spectra, fields and trajectories are stored beside the experiment database. Operation records keep compact references, units, shape, axes and acquisition metadata; clients retrieve the array only when needed. Unchanged large state is shared across successive operations and branches.
+Large images, spectra, fields and trajectories are stored beside the experiment database. Operation
+records keep compact references, units, shape, axes and acquisition metadata; clients retrieve the
+array only when needed. Unchanged large state is shared across successive operations and branches.
+
+Mature numerical software remains in its own domain package. Synthetic Lab translates persistent
+operations into solver inputs and selected solver variables into observations. The PyBaMM battery
+package is the first implementation: one current protocol can run through SPM, SPMe and DFN without
+copying their electrochemical equations into this repository.
 
 Existing sessions retain their public action descriptions. A client can submit operations and
 read configurations without installing the domain solver. Creation and local `act` calls require
@@ -88,16 +98,21 @@ the domain package. SQLite workers currently share one host.
 | `fiber` | Find and track a drifting coupling peak; distinguish source variation from alignment loss; choose zeroing and exposure | Gaussian coupling, laser warm-up, drift and finite-range detectors |
 | `thermal` | Separate heating power from thermal contact and predict a held-out power or clamp condition | Joule heating, lumped heat capacity and thermal resistance |
 | `battery` | Design pulses to identify resistance and relaxation while respecting voltage and temperature limits | Charge balance, one-RC equivalent circuit and self-heating |
+| `pybamm-battery-spm` · solver package | Explore many current protocols quickly and compare them with richer cell models | PyBaMM single-particle model with lumped thermal dynamics |
+| `pybamm-battery-spme` · solver package | Study when electrolyte transport changes voltage and protocol decisions | PyBaMM single-particle model with electrolyte and lumped thermal dynamics |
+| `pybamm-battery-dfn` · solver package | Resolve porous-electrode transport under the same protocol used by SPM and SPMe | PyBaMM Doyle–Fuller–Newman model with lumped thermal dynamics |
 | `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
 | `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
 | `spectroscopic-bioreactor` · bioprocess package | Coordinate feed, aeration and optical induction from OD, fluorescence, Raman and oxygen measurements | Fed-batch mass balances, Monod growth, oxygen transfer, reporter response and production burden |
 | `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
-These are reference simulations with synthetic parameter priors, not device-specific twins. Their
-contracts and model documents state the approximations and failure conditions. A calibrated twin
-must name its physical counterpart, data, operating range and held-out predictive performance.
-[Reaction model](docs/reaction-lab.md) · [Optical metrology](docs/optical-metrology.md) ·
-[Bioprocess spectroscopy](docs/spectroscopic-bioprocess.md) · [Reference models](docs/models.md)
+The built-in and reduced-order packages use synthetic parameter priors. The PyBaMM package uses an
+established solver and parameter library, but its generic `Chen2020` configuration is still not a
+device-specific twin. A calibrated twin must name its physical counterpart, data, operating range
+and held-out predictive performance. [Reaction model](docs/reaction-lab.md) ·
+[Optical metrology](docs/optical-metrology.md) ·
+[Bioprocess spectroscopy](docs/spectroscopic-bioprocess.md) ·
+[PyBaMM battery laboratories](labs/pybamm-battery/README.md) · [Reference models](docs/models.md)
 
 The [frontier laboratory atlas](docs/lab-atlas.md) gives the intended expansion order: materials
 synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
@@ -137,13 +152,14 @@ state, random state and evaluator answers remain owner-side.
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
+| `labs/pybamm-battery/` | Solver-backed SPM, SPMe and DFN battery laboratories |
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
 | `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
 | `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings exercised with live experimental output |
 | `sql/` | Relational layout for sessions, operations, claims, snapshots and artifact metadata |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, persistence, concurrency and interface behavior |
-| `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
+| `docs/` | Architecture, solver boundaries, model scope and laboratory priorities |
 
 Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,
 SeedEnv prepares dependencies, Gym owns tasks and assessment, and data systems consume traces.

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envfoundry-pybamm-battery-lab"
+version = "0.1.0"
+description = "PyBaMM-backed lithium-ion laboratories for Synthetic Lab"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "envfoundry-synthetic-lab>=0.2,<0.3",
+  "pybamm>=26.11,<27",
+]
+
+[project.entry-points."synthetic_lab.models"]
+pybamm-battery-spm = "pybamm_battery.lab:SPMBatteryLab"
+pybamm-battery-spme = "pybamm_battery.lab:SPMeBatteryLab"
+pybamm-battery-dfn = "pybamm_battery.lab:DFNBatteryLab"
+
+[tool.setuptools.packages.find]
+where = ["."]
