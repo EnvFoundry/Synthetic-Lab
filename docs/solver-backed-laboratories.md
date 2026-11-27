@@ -22,30 +22,50 @@ A useful adapter must add more than a subprocess call. It defines:
 - which lower- and higher-fidelity models can receive the same intervention;
 - one scientific question whose answer changes with the measurements.
 
-The first implementation is `labs/pybamm-battery`. It registers SPM, SPMe and DFN as three
-laboratories with the same current-step interface. PyBaMM supplies the electrochemical equations,
-parameter library, discretisation and solver. Synthetic Lab supplies persistent protocols, workers,
-branches, selected readouts and time-series storage.
+## Battery electrochemistry through PyBaMM
 
-The current PyBaMM adapter reconstructs a simulation by replaying the committed current history.
-This gives process-independent continuation without serialising solver internals. It is suitable for
-short and medium protocols. Long cycling studies should add a solver-native restart representation
-stored as an external experiment object, while preserving the same public operations.
+`labs/pybamm-battery` registers SPM, SPMe and DFN as three laboratories with the same current-step
+interface. PyBaMM supplies the electrochemical equations, parameter library, discretisation and
+solver. Synthetic Lab supplies persistent protocols, workers, branches, selected readouts and
+time-series storage.
 
-The adapter must distinguish a requested duration from actual elapsed time. A physical termination
-can complete a shorter operation, after which later interventions must start from that endpoint.
-Replaying an earlier cut-off must not silently discard the new intervention. Adjacent operations
-retain their boundaries so that a later call does not change previously reported observations.
+The adapter reconstructs a simulation by replaying the committed current history. This gives
+process-independent continuation without serialising solver internals. It is suitable for short and
+medium protocols. Long cycling studies should add a solver-native restart representation stored as
+an external experiment object while preserving the same public operations.
 
-Solver output and instrument response are separate scientific choices. The PyBaMM package exposes
-noiseless endpoint predictions and trajectories; it declares zero acquisition time and a derived
-coulomb-count SOC. A device-specific sensor model can add bandwidth, calibration and noise without
-changing PyBaMM's electrochemistry. More elaborate equations alone do not establish agreement with
-a real instrument.
+A current step records actual elapsed time when a voltage cut-off ends it early. Later rest or charge
+steps continue from that endpoint. Endpoint reads are cached solver outputs with no acquisition delay;
+a device-specific sensor model can later add bandwidth, calibration and noise without changing the
+electrochemistry.
 
-A second solver should be added only when it exercises a materially different scientific structure.
-The next priority is wave optics: represent one specimen, material dispersion, illumination and
-detector geometry consistently across transfer-matrix, RCWA and Meep calculations. Compare the
-same spectrum first, including power normalization and numerical convergence; then reuse it in
-an adaptive measurement or inverse-design experiment. Reacting systems through Cantera and continuum
-transport through FEniCS or OpenFOAM are later candidates.
+## Full-wave photonics through Meep
+
+`labs/meep-photonics` represents one fabricated photonic-crystal waveguide cavity. The public design
+sets hole radius and defect spacing. Fabrication draws one hidden geometric offset, which remains the
+same sample for every later measurement and experimental branch.
+
+Broadband transmission uses a straight-waveguide reference and a cavity run with the same source,
+cell, monitor and resolution. Meep supplies the time-domain Maxwell solution. Synthetic Lab converts
+the flux ratio into a wavelength-indexed spectrometer observation, extracts a central-band resonance,
+and stores a resonant two-dimensional field map outside the operation database.
+
+This package establishes three boundaries that future photonics solvers should share:
+
+- material and geometry are stated in physical units;
+- power is normalized against an explicit optical reference;
+- numerical field variables become finite-time instrument observations rather than raw solver state.
+
+The present model is two-dimensional, lossless and nondispersive. The next photonics step is to give
+transfer-matrix and RCWA packages the same material, geometry, illumination and detector description,
+then compare their spectra with Meep on structures all three methods can represent. Measured index,
+SEM geometry and spectrometer response can subsequently turn the same operations into a named-device
+model.
+
+## Expansion
+
+A new solver belongs in the repository when it exercises a materially different scientific
+structure. Strong successors are Cantera for reacting systems, FEniCS or OpenFOAM for spatial
+transport, OpenMM or LAMMPS for molecular systems, and QuTiP for quantum control. Each should expose
+a persistent experimental object and at least one intervention whose scientific conclusion depends
+on the resulting observations.

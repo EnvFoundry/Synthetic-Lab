@@ -82,6 +82,26 @@ jobs:
       - run: python examples/screen_tumor_organoid.py
       - run: python -m build labs/physicell-organoid
 
+  meep:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: synthetic-lab-meep
+          python-version: '3.11'
+          channels: conda-forge
+          channel-priority: strict
+      - run: conda install -y -c conda-forge pymeep numpy pip
+      - run: python -m pip install -e ".[test]" -e labs/meep-photonics
+      - run: pytest -q tests/test_meep_photonics.py
+      - run: python examples/measure_photonic_cavity.py
+      - run: python -m build labs/meep-photonics
+
   protocol:
     runs-on: ubuntu-latest
     env:

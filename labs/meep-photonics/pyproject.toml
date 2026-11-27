@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envfoundry-meep-photonics-lab"
+version = "0.1.0"
+description = "Full-wave photonic-cavity spectroscopy for Synthetic Lab"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "envfoundry-synthetic-lab>=0.2,<0.3",
+  "numpy>=2.0",
+]
+
+[project.entry-points."synthetic_lab.models"]
+meep-photonic-cavity = "meep_photonics.lab:MeepPhotonicCavity"
+
+[tool.setuptools.packages.find]
+where = ["."]
