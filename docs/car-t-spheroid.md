@@ -31,6 +31,40 @@ The environment therefore separates four failure modes:
 
 Tumor control is compared by residual viable cell burden relative to a forked untreated spheroid, not by the fraction of cells still viable at the endpoint. Dead-cell clearance can leave a treated remnant with a viable fraction near one even when most of the original burden has been eliminated.
 
-In the bundled 18 h experiment, the untreated branch ended with 264 viable tumor cells. Fast-, intermediate- and slow-off CAR designs left 88, 69 and 67 viable cells. Increasing dwell time raised cumulative kills from 153 to 203, but mean exhaustion rose from 0.0298 to 0.0396, the infiltrating fraction fell from 0.175 to 0.1125, and the antigen-low fraction among surviving tumor cells rose from 0.659 to 0.881. The fast-off design generated 1,058 serial contacts and was selected by the stated joint burden–escape–exhaustion–infiltration objective.
+Model 2 counts a kill only when a live target enters apoptosis, even when several CAR-T cells
+share that target. Killing and detachment are competing hazards: an event occurs with probability
+`1 - exp(-(kill + off) * dt)` and is a kill with probability `kill / (kill + off)`. Contact and kill
+totals persist when individual immune cells disappear. Contact-induced antigen loss runs on the
+mechanics clock, so a short engagement does not consume a full six-minute phenotype interval.
+
+CAR-T cells are placed uniformly by volume in a bounded spherical shell outside the actual tumor
+at infusion. The same infusion-time radius is retained for infiltration measurements after treatment;
+it does not shrink as tumor cells die. A shell that cannot fit the configured domain stops the assay
+before creating cells. Solver exceptions propagate to the operation instead of returning partial
+endpoints. Culture time ends at the requested time, including fractional infusion times.
+
+The bundled 18 h example with seed 2029 and one OpenMP thread gave these model-2 results:
+
+| Design | Live tumor cells | Antigen-low live cells | Contacts | Kills | Infiltrating fraction | Mean exhaustion |
+|---|---:|---:|---:|---:|---:|---:|
+| No CAR-T | 289 | 69 | 0 | 0 | 0 | 0 |
+| 5 min dwell | 80 | 63 | 966 | 153 | 0.18125 | 0.02636 |
+| 20 min dwell | 86 | 72 | 427 | 148 | 0.15000 | 0.02541 |
+| 90 min dwell | 85 | 75 | 259 | 155 | 0.35625 | 0.02752 |
+
+These replace the earlier model-1 numbers. This draw does not support a monotonic loss of
+infiltration as dwell time increases. The illustrative weighted objective selects 5 min, but the
+weights express a research preference; additional seeds and parameter populations are needed to
+estimate a ranking or a Pareto surface. Antigen-low cell count and fraction are both reported, since
+enrichment among survivors can coexist with a reduction in their absolute number.
+
+One `infuse` operation runs the entire culture. Reads and snapshots expose ideal simulated endpoints
+without assay noise; mid-culture observations and further infusions are not implemented. Fractions
+and means for empty populations use zero alongside the corresponding counts. The retained
+`equivalent_diameter` field is the origin-centred bounding diameter. The default is one OpenMP
+thread; identical seeds need not produce identical trajectories with multiple threads.
+
+Stored model-1 results remain readable. Continuing model-1 operations requires the original Python
+implementation and executable. Rebuild the C++ executable when installing model 2.
 
 The principal measurements are viable tumor cell count, residual viable burden relative to a matched untreated branch, antigen-low fraction among survivors, CAR-T infiltration depth, continuous exhaustion, cumulative contacts and cumulative kills. The model is intended for comparative in-vitro questions and CAR design hypotheses, not clinical prediction.

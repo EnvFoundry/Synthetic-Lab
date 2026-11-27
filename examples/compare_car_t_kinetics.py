@@ -42,7 +42,7 @@ def main():
                 "antigen_negative_fraction": 0.18,
                 "patient_variation": 0.0,
                 "diffusion_dt_min": 0.10,
-                "omp_threads": 2,
+                "omp_threads": 1,
             },
         )
         untreated = root.fork()
@@ -58,6 +58,8 @@ def main():
             motility_speed_um_min=1.0,
         )["observations"]
         baseline_viable_cells = baseline["tumor_viable_cells"]["value"]
+        if baseline_viable_cells == 0:
+            raise ValueError("Untreated well has no viable cells for burden normalization")
         results["no_car_t"] = {
             "tumor_viable_cells": baseline_viable_cells,
             "relative_viable_burden": 1.0,
@@ -82,8 +84,10 @@ def main():
                 "relative_viable_burden": relative_burden,
                 "tumor_viable_fraction": observations["tumor_viable_fraction"]["value"],
                 "antigen_low_viable_fraction": escape,
+                "antigen_low_viable_cells": observations["antigen_low_viable_cells"]["value"],
                 "mean_viable_antigen": observations["mean_viable_antigen"]["value"],
                 "infiltrating_fraction": infiltration,
+                "infusion_radius_um": observations["infusion_radius"]["value"],
                 "mean_infiltration_depth_um": observations["mean_infiltration_depth"]["value"],
                 "mean_exhaustion": exhaustion,
                 "exhausted_fraction": observations["exhausted_fraction"]["value"],

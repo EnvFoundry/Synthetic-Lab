@@ -101,6 +101,26 @@ jobs:
       - run: python examples/compare_car_t_kinetics.py
       - run: python -m build labs/physicell-car-t
 
+  meep:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: synthetic-lab-meep
+          python-version: '3.11'
+          channels: conda-forge
+          channel-priority: strict
+      - run: conda install -y -c conda-forge pymeep numpy pip
+      - run: python -m pip install -e ".[test]" -e labs/meep-photonics
+      - run: pytest -q tests/test_meep_photonics.py
+      - run: python examples/measure_photonic_cavity.py
+      - run: python -m build labs/meep-photonics
+
   protocol:
     runs-on: ubuntu-latest
     env:
@@ -110,8 +130,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess -e labs/pybamm-battery
-      - run: python scripts/export_protocol_fixtures.py runs/protocol.json
+      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess -e labs/pybamm-battery -e labs/physicell-organoid -e labs/physicell-car-t
+      - run: >-
+          python scripts/export_protocol_fixtures.py runs/protocol.json
+          --initial-read fiber --initial-read thermal --initial-read battery
+          --initial-read reaction --initial-read fluid-tank --initial-read thin-film
+          --initial-read fluorescence-microscopy --initial-read spectroscopic-bioreactor
+          --initial-read pybamm-battery-spm --initial-read pybamm-battery-spme
+          --initial-read pybamm-battery-dfn
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

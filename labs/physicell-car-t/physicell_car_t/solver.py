@@ -186,13 +186,15 @@ def _summary(path):
     tumor_total = result["tumor_total_cells"]
     viable = result["tumor_viable_cells"]
     immune = result["immune_cells"]
-    if tumor_total <= 0:
-        raise ValueError("PhysiCell returned no tumor cells")
     result.update(
         {
-            "tumor_viable_fraction": viable / tumor_total,
-            "tumor_apoptotic_fraction": result["tumor_apoptotic_cells"] / tumor_total,
-            "tumor_necrotic_fraction": result["tumor_necrotic_cells"] / tumor_total,
+            "tumor_viable_fraction": viable / tumor_total if tumor_total else 0.0,
+            "tumor_apoptotic_fraction": (
+                result["tumor_apoptotic_cells"] / tumor_total if tumor_total else 0.0
+            ),
+            "tumor_necrotic_fraction": (
+                result["tumor_necrotic_cells"] / tumor_total if tumor_total else 0.0
+            ),
             "antigen_low_viable_fraction": (
                 result["antigen_low_viable_cells"] / viable if viable else 0.0
             ),
@@ -230,8 +232,6 @@ def _cells(path):
                 if isinstance(value, float) and not math.isfinite(value):
                     raise ValueError(f"PhysiCell returned a non-finite cell field: {name}")
                 columns[name].append(value)
-    if not columns["x_um"]:
-        raise ValueError("PhysiCell returned an empty cell map")
     return columns
 
 
@@ -244,7 +244,7 @@ def run_assay(*, seed, protocol, patient, settings):
         config = _write_config(_base_config(executable), output, seed, protocol, patient, settings)
         completed = subprocess.run(
             [str(executable), str(config)],
-            cwd=executable.parent,
+            cwd=work,
             text=True,
             capture_output=True,
             timeout=settings["solver_timeout_s"],

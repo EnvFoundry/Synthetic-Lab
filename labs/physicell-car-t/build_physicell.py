@@ -5,6 +5,10 @@ import subprocess
 from pathlib import Path
 
 INTRODUCE_IMMUNE_CELLS = r"""
+double infusion_radius = 0.0;
+double cumulative_contacts = 0.0;
+double cumulative_kills = 0.0;
+
 void introduce_immune_cells( void )
 {
 	double tumor_radius = 0.0;
@@ -19,24 +23,31 @@ void introduce_immune_cells( void )
 		if( radius > tumor_radius )
 		{ tumor_radius = radius; }
 	}
-	if( tumor_radius <= 0.0 )
-	{ tumor_radius = parameters.doubles( "tumor_radius" ); }
+	infusion_radius = tumor_radius;
 
 	std::cout << "current tumor radius: " << tumor_radius << std::endl;
 
 	int number_of_immune_cells = parameters.ints( "number_of_immune_cells" );
+	if( number_of_immune_cells == 0 )
+	{ return; }
 	double radius_inner = tumor_radius
 		+ parameters.doubles( "initial_min_immune_distance_from_tumor" );
 	double radius_outer = radius_inner
 		+ parameters.doubles( "thickness_of_immune_seeding_region" );
-	double mean_radius = 0.5 * ( radius_inner + radius_outer );
-	double std_radius = 0.33 * ( radius_outer - radius_inner ) / 2.0;
+	double cell_radius = pImmuneCell->phenotype.geometry.radius;
+	for( int axis = 0; axis < 3; axis++ )
+	{
+		if( radius_outer + cell_radius > microenvironment.mesh.bounding_box[axis+3] ||
+			-radius_outer - cell_radius < microenvironment.mesh.bounding_box[axis] )
+		{ throw std::runtime_error("CAR-T seeding shell exceeds the simulation domain"); }
+	}
 
 	for( int i = 0; i < number_of_immune_cells; i++ )
 	{
 		double theta = UniformRandom() * 6.283185307179586476925286766559;
 		double phi = acos( 2.0 * UniformRandom() - 1.0 );
-		double radius = NormalRandom( mean_radius, std_radius );
+		double radius = cbrt( pow(radius_inner, 3) + UniformRandom() *
+			(pow(radius_outer, 3) - pow(radius_inner, 3)) );
 		Cell* pCell = create_cell( *pImmuneCell );
 		pCell->assign_position(
 			radius * cos( theta ) * sin( phi ),
@@ -90,7 +101,6 @@ void tumor_cell_phenotype_with_and_immune_stimulation(
 	static int cycle_start_index = live.find_phase_index( PhysiCell_constants::live );
 	static int cycle_end_index = live.find_phase_index( PhysiCell_constants::live );
 	static int oncoprotein_i = pCell->custom_data.find_variable_index( "oncoprotein" );
-	static int antigen_i = pCell->custom_data.find_variable_index( "car_antigen" );
 	static int immune_factor_index =
 		microenvironment.find_density_index( "immunostimulatory factor" );
 
@@ -104,18 +114,17 @@ void tumor_cell_phenotype_with_and_immune_stimulation(
 		return;
 	}
 
-	// Repeated CAR engagement can select or induce an antigen-low remnant.
-	if( pCell->state.number_of_attached_cells() > 0 )
-	{
-		double antigen_loss_rate = parameters.doubles( "antigen_loss_rate" );
-		pCell->custom_data[antigen_i] *= exp( -antigen_loss_rate * dt );
-		if( pCell->custom_data[antigen_i] < 0.0 )
-		{ pCell->custom_data[antigen_i] = 0.0; }
-	}
-
 	phenotype.cycle.data.transition_rate( cycle_start_index, cycle_end_index )
 		*= pCell->custom_data[oncoprotein_i];
 	return;
+}
+
+void tumor_contact_rule( Cell* pCell, Phenotype& phenotype, double dt )
+{
+	// Contact is resolved on the mechanics clock, not the six-minute phenotype clock.
+	if( !phenotype.death.dead && pCell->state.number_of_attached_cells() > 0 )
+	{ pCell->custom_data["car_antigen"] *= exp(
+		-parameters.doubles("antigen_loss_rate") * dt ); }
 }
 """
 
@@ -195,6 +204,8 @@ bool immune_cell_attempt_attachment( Cell* pAttacker, Cell* pTarget, double dt )
 	{
 		attach_cells( pAttacker, pTarget );
 		pAttacker->custom_data[contact_events_i] += 1.0;
+		#pragma omp atomic
+		cumulative_contacts += 1.0;
 		return true;
 	}
 	return false;
@@ -202,18 +213,17 @@ bool immune_cell_attempt_attachment( Cell* pAttacker, Cell* pTarget, double dt )
 """
 
 APOPTOSIS = r"""
-bool immune_cell_attempt_apoptosis( Cell* pAttacker, Cell* pTarget, double dt )
+double immune_kill_hazard( Cell* pAttacker, Cell* pTarget )
 {
 	static int antigen_i = pTarget->custom_data.find_variable_index( "car_antigen" );
 	static int kill_rate_i = pAttacker->custom_data.find_variable_index( "kill_rate" );
 	static int exhaustion_i = pAttacker->custom_data.find_variable_index( "exhaustion" );
-	static int kills_i = pAttacker->custom_data.find_variable_index( "kills" );
 
 	double threshold = pAttacker->custom_data["car_antigen_threshold"];
 	double saturation = pAttacker->custom_data["car_antigen_saturation"];
 	double antigen = pTarget->custom_data[antigen_i];
 	if( antigen <= threshold )
-	{ return false; }
+	{ return 0.0; }
 
 	double antigen_scale = ( antigen - threshold ) /
 		( saturation - threshold + 1e-15 );
@@ -228,20 +238,13 @@ bool immune_cell_attempt_apoptosis( Cell* pAttacker, Cell* pTarget, double dt )
 	double hazard = pAttacker->custom_data[kill_rate_i]
 		* antigen_scale * functional_fraction;
 
-	if( UniformRandom() < 1.0 - exp( -hazard * dt ) )
-	{
-		pAttacker->custom_data[kills_i] += 1.0;
-		return true;
-	}
-	return false;
+	return hazard;
 }
 """
 
 IMMUNE_RULE = r"""
 void immune_cell_rule( Cell* pCell, Phenotype& phenotype, double dt )
 {
-	static int attach_lifetime_i =
-		pCell->custom_data.find_variable_index( "attachment_lifetime" );
 	static int exhaustion_i =
 		pCell->custom_data.find_variable_index( "exhaustion" );
 	static int contact_minutes_i =
@@ -271,13 +274,10 @@ void immune_cell_rule( Cell* pCell, Phenotype& phenotype, double dt )
 		drive += parameters.doubles( "exhaustion_contact_rate" );
 		pCell->custom_data[contact_minutes_i] += dt;
 	}
-	double recovery = attached ? 0.0 :
-		parameters.doubles( "exhaustion_recovery_rate" ) * exhaustion;
-	exhaustion += dt * ( drive * ( 1.0 - exhaustion ) - recovery );
-	if( exhaustion < 0.0 )
-	{ exhaustion = 0.0; }
-	if( exhaustion > 1.0 )
-	{ exhaustion = 1.0; }
+	double recovery = attached ? 0.0 : parameters.doubles( "exhaustion_recovery_rate" );
+	double rate = drive + recovery;
+	if( rate > 0.0 )
+	{ exhaustion = drive / rate + (exhaustion - drive / rate) * exp(-rate * dt); }
 	pCell->custom_data[exhaustion_i] = exhaustion;
 
 	if( attached )
@@ -285,14 +285,27 @@ void immune_cell_rule( Cell* pCell, Phenotype& phenotype, double dt )
 		bool detach_me = false;
 		Cell* pTarget = pCell->state.attached_cells[0];
 
-		if( immune_cell_attempt_apoptosis( pCell, pTarget, dt ) )
+		#pragma omp critical(car_t_kill)
 		{
-			immune_cell_trigger_apoptosis( pCell, pTarget );
-			detach_me = true;
+			if( pTarget->phenotype.death.dead )
+			{ detach_me = true; }
+			else
+			{
+				double kill = immune_kill_hazard(pCell, pTarget);
+				double off = 1.0 / pCell->custom_data["attachment_lifetime"];
+				double total = kill + off;
+				if( UniformRandom() < 1.0 - exp(-total * dt) )
+				{
+					detach_me = true;
+					if( UniformRandom() < kill / total &&
+						immune_cell_trigger_apoptosis(pCell, pTarget) )
+					{
+						pCell->custom_data["kills"] += 1.0;
+						cumulative_kills += 1.0;
+					}
+				}
+			}
 		}
-		if( UniformRandom() <
-			1.0 - exp( -dt / ( pCell->custom_data[attach_lifetime_i] + 1e-15 ) ) )
-		{ detach_me = true; }
 
 		if( detach_me )
 		{
@@ -316,7 +329,7 @@ SUMMARY_CODE = r"""
 	// Compact endpoint and cell-resolved output for the Synthetic Lab adapter.
 	Cell_Definition* pTumor = find_cell_definition( "cancer cell" );
 	Cell_Definition* pImmune = find_cell_definition( "immune cell" );
-	double tumor_radius = parameters.doubles( "tumor_radius" );
+	double tumor_radius = infusion_radius;
 	double antigen_threshold = parameters.doubles( "antigen_threshold" );
 
 	int tumor_total_cells = 0;
@@ -328,8 +341,6 @@ SUMMARY_CODE = r"""
 	int infiltrating_immune_cells = 0;
 	int exhausted_immune_cells = 0;
 	int engaged_immune_cells = 0;
-	double total_contacts = 0.0;
-	double total_kills = 0.0;
 	double viable_antigen_sum = 0.0;
 	double tumor_oxygen_sum = 0.0;
 	double exhaustion_sum = 0.0;
@@ -339,6 +350,7 @@ SUMMARY_CODE = r"""
 
 	std::string cells_path = PhysiCell_settings.folder + "/cells.csv";
 	std::ofstream cells_file( cells_path.c_str() );
+	cells_file.precision(17);
 	cells_file << "cell_type,x_um,y_um,z_um,dead,apoptotic,necrotic,"
 		<< "car_antigen,oxygen_mmhg,exhaustion,engaged,contact_events,kills\n";
 
@@ -378,7 +390,7 @@ SUMMARY_CODE = r"""
 			{
 				tumor_viable_cells++;
 				viable_antigen_sum += antigen;
-				if( antigen < antigen_threshold )
+				if( antigen <= antigen_threshold )
 				{ antigen_low_viable_cells++; }
 			}
 		}
@@ -390,8 +402,6 @@ SUMMARY_CODE = r"""
 			kills = pCell->custom_data["kills"];
 			immune_cells++;
 			exhaustion_sum += exhaustion;
-			total_contacts += contacts;
-			total_kills += kills;
 			if( exhaustion > 0.7 )
 			{ exhausted_immune_cells++; }
 			if( pCell->state.number_of_attached_cells() > 0 )
@@ -426,6 +436,7 @@ SUMMARY_CODE = r"""
 
 	std::string summary_path = PhysiCell_settings.folder + "/summary.csv";
 	std::ofstream summary_file( summary_path.c_str() );
+	summary_file.precision(17);
 	summary_file
 		<< "tumor_total_cells,tumor_viable_cells,tumor_apoptotic_cells,"
 		<< "tumor_necrotic_cells,antigen_low_viable_cells,immune_cells,"
@@ -433,18 +444,19 @@ SUMMARY_CODE = r"""
 		<< "engaged_immune_cells,total_contacts,total_kills,"
 		<< "mean_viable_antigen,mean_tumor_oxygen_mmhg,mean_exhaustion,"
 		<< "mean_infiltration_depth_um,max_infiltration_depth_um,"
-		<< "equivalent_diameter_um\n";
+		<< "equivalent_diameter_um,infusion_radius_um,elapsed_min\n";
 	summary_file
 		<< tumor_total_cells << "," << tumor_viable_cells << ","
 		<< tumor_apoptotic_cells << "," << tumor_necrotic_cells << ","
 		<< antigen_low_viable_cells << "," << immune_cells << ","
 		<< infiltrating_immune_cells << "," << exhausted_immune_cells << ","
-		<< engaged_immune_cells << "," << total_contacts << ","
-		<< total_kills << "," << viable_antigen_sum / viable_denominator << ","
+		<< engaged_immune_cells << "," << cumulative_contacts << ","
+		<< cumulative_kills << "," << viable_antigen_sum / viable_denominator << ","
 		<< tumor_oxygen_sum / tumor_denominator << ","
 		<< exhaustion_sum / immune_denominator << ","
 		<< infiltration_depth_sum / infiltrating_denominator << ","
-		<< max_infiltration_depth << "," << 2.0 * radial_extent << "\n";
+		<< max_infiltration_depth << "," << 2.0 * radial_extent << ","
+		<< infusion_radius << "," << PhysiCell_globals.current_time << "\n";
 	summary_file.close();
 
 """
@@ -531,10 +543,50 @@ def prepare(root):
         IMMUNE_RULE,
         custom,
     )
+    text = replace_once(
+        text,
+        "cell_defaults.functions.custom_cell_rule = NULL;",
+        "cell_defaults.functions.custom_cell_rule = tumor_contact_rule;",
+        custom,
+    )
+    header = root / "custom_modules" / "cancer_immune_3D.h"
+    header.write_text(
+        header.read_text(encoding="utf-8")
+        + "\nvoid tumor_contact_rule(Cell*, Phenotype&, double);\n"
+        "extern double infusion_radius, cumulative_contacts, cumulative_kills;\n",
+        encoding="utf-8",
+    )
     custom.write_text(text, encoding="utf-8")
 
     main = root / "main.cpp"
     text = main.read_text(encoding="utf-8")
+    text = replace_once(
+        text, "PhysiCell_settings.max_time + 0.1*diffusion_dt", "PhysiCell_settings.max_time", main
+    )
+    text = replace_once(
+        text,
+        "PhysiCell_globals.current_time > immune_activation_time - 0.01*diffusion_dt",
+        "PhysiCell_globals.current_time >= immune_activation_time",
+        main,
+    )
+    text = replace_once(
+        text,
+        "microenvironment.simulate_diffusion_decay( diffusion_dt );",
+        "double step_dt = std::min(diffusion_dt, "
+        "PhysiCell_settings.max_time - PhysiCell_globals.current_time);\n"
+        "\t\t\tif(immune_activation_time > PhysiCell_globals.current_time)\n"
+        "\t\t\t{ step_dt = std::min(step_dt, "
+        "immune_activation_time - PhysiCell_globals.current_time); }\n"
+        "\t\t\tmicroenvironment.simulate_diffusion_decay( step_dt );",
+        main,
+    )
+    text = replace_once(
+        text,
+        "PhysiCell_globals.current_time += diffusion_dt;",
+        "PhysiCell_globals.current_time += step_dt;",
+        main,
+    )
+    text = replace_once(text, "std::cout << e.what();", "std::cerr << e.what(); return 1;", main)
     text = replace_once(
         text,
         "\n\treturn 0; \n}",

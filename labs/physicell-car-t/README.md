@@ -30,11 +30,11 @@ result = spheroid.act(
 Build the external solver from a disposable PhysiCell checkout:
 
 ```bash
-git clone --depth 1 --branch 1.14.2 https://github.com/MathCancer/PhysiCell.git
-python labs/physicell-car-t/build_physicell.py PhysiCell
-make -C PhysiCell -j2
-export PHYSICELL_CART_EXECUTABLE="$PWD/PhysiCell/car_t_spheroid"
-export PHYSICELL_CART_CONFIG="$PWD/PhysiCell/config/PhysiCell_settings.xml"
+git clone --depth 1 --branch 1.14.2 https://github.com/MathCancer/PhysiCell.git ../PhysiCell-car-t
+python labs/physicell-car-t/build_physicell.py ../PhysiCell-car-t
+make -C ../PhysiCell-car-t -j2
+export PHYSICELL_CART_EXECUTABLE="$PWD/../PhysiCell-car-t/car_t_spheroid"
+export PHYSICELL_CART_CONFIG="$PWD/../PhysiCell-car-t/config/PhysiCell_settings.xml"
 python -m pip install -e . -e labs/physicell-car-t
 python examples/compare_car_t_kinetics.py
 ```

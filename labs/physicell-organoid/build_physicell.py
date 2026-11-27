@@ -20,6 +20,7 @@ HETEROGENEITY_CODE = r"""
 		if( pCell->type != pTumor->type )
 		{ continue; }
 		bool resistant = UniformRandom() < resistant_fraction;
+		set_single_behavior( pCell, "custom:resistant", resistant );
 		set_single_behavior( pCell, "custom:damage_rate",
 			resistant ? resistant_damage_rate : sensitive_damage_rate );
 		set_single_behavior( pCell, "custom:repair_rate",
@@ -62,9 +63,6 @@ SUMMARY_CODE = r"""
 	// Synthetic Lab adapter. PhysiCell's native final MultiCellDS output is retained.
 	Cell_Definition* pTumor = find_cell_definition( "cancer cell" );
 	double hypoxia_threshold = parameters.doubles( "hypoxia_threshold" );
-	double resistance_threshold = 0.5 * (
-		parameters.doubles( "sensitive_repair_rate" ) +
-		parameters.doubles( "resistant_repair_rate" ) );
 	int total_cells = 0;
 	int viable_cells = 0;
 	int apoptotic_cells = 0;
@@ -78,6 +76,7 @@ SUMMARY_CODE = r"""
 
 	std::string cells_path = PhysiCell_settings.folder + "/cells.csv";
 	std::ofstream cells_file( cells_path.c_str() );
+	cells_file.precision(17);
 	cells_file << "x_um,y_um,z_um,dead,apoptotic,necrotic,resistant,oxygen_mmhg,therapeutic,damage\n";
 	for( int i = 0; i < all_cells->size(); i++ )
 	{
@@ -91,8 +90,7 @@ SUMMARY_CODE = r"""
 		double oxygen = get_single_signal( pCell, "oxygen" );
 		double therapeutic = get_single_signal( pCell, "therapeutic" );
 		double damage = get_single_signal( pCell, "damage" );
-		double repair = get_single_signal( pCell, "custom:repair_rate" );
-		bool resistant = repair > resistance_threshold;
+		bool resistant = get_single_signal( pCell, "custom:resistant" ) > 0.5;
 		if( apoptotic > 0.5 )
 		{ apoptotic_cells++; }
 		else if( necrotic > 0.5 )
@@ -126,14 +124,15 @@ SUMMARY_CODE = r"""
 	double denominator = total_cells > 0 ? total_cells : 1;
 	std::string summary_path = PhysiCell_settings.folder + "/summary.csv";
 	std::ofstream summary_file( summary_path.c_str() );
+	summary_file.precision(17);
 	summary_file << "total_cells,viable_cells,apoptotic_cells,necrotic_cells,"
 		<< "resistant_viable_cells,hypoxic_viable_cells,equivalent_diameter_um,"
-		<< "mean_oxygen_mmhg,mean_therapeutic,mean_damage\n";
+		<< "mean_oxygen_mmhg,mean_therapeutic,mean_damage,elapsed_min\n";
 	summary_file << total_cells << "," << viable_cells << "," << apoptotic_cells
 		<< "," << necrotic_cells << "," << resistant_viable_cells << ","
 		<< hypoxic_viable_cells << "," << 2.0 * radial_extent << ","
 		<< oxygen_sum / denominator << "," << therapeutic_sum / denominator
-		<< "," << damage_sum / denominator << "\n";
+		<< "," << damage_sum / denominator << "," << PhysiCell_globals.current_time << "\n";
 	summary_file.close();
 
 """
@@ -163,6 +162,17 @@ def prepare(root):
     text = custom.read_text(encoding="utf-8")
     marker = "\t// load cells from your CSV file (if enabled)\n"
     text = replace_once(text, marker, HETEROGENEITY_CODE + marker, custom)
+    # The upstream homogeneous model caches the first cell's damage/repair ratio.
+    # Heterogeneous cells must share an explicit scale, independent of cell order.
+    text = replace_once(
+        text,
+        "static double max_damage = 1.0 * damage_rate / (1e-16 + repair_rate );",
+        'double max_damage = parameters.doubles( "damage_scale" );',
+        custom,
+    )
+    text = replace_once(
+        text, "if( UniformRandom() <= temp )", "if( UniformRandom() < 1.0 - exp( -temp ) )", custom
+    )
     custom.write_text(text, encoding="utf-8")
 
     main = root / "main.cpp"
@@ -177,6 +187,30 @@ def prepare(root):
     text = replace_once(text, "\t\t\t\tintroduce_biorobots();\n", "", main)
     marker = "\t\t\t// update the microenvironment\n"
     text = replace_once(text, marker, TREATMENT_BOUNDARY + marker, main)
+    text = replace_once(
+        text,
+        "PhysiCell_settings.max_time + 0.1*diffusion_dt",
+        "PhysiCell_settings.max_time",
+        main,
+    )
+    text = replace_once(
+        text,
+        "microenvironment.simulate_diffusion_decay( diffusion_dt );",
+        "double step_dt = std::min(diffusion_dt, "
+        "PhysiCell_settings.max_time - PhysiCell_globals.current_time);\n"
+        "\t\t\tfor(double boundary : {treatment_start_min, treatment_end_min})\n"
+        "\t\t\t{ if(boundary > PhysiCell_globals.current_time)\n"
+        "\t\t\t  step_dt = std::min(step_dt, boundary - PhysiCell_globals.current_time); }\n"
+        "\t\t\tmicroenvironment.simulate_diffusion_decay( step_dt );",
+        main,
+    )
+    text = replace_once(
+        text,
+        "PhysiCell_globals.current_time += diffusion_dt;",
+        "PhysiCell_globals.current_time += step_dt;",
+        main,
+    )
+    text = replace_once(text, "std::cout << e.what();", "std::cerr << e.what(); return 1;", main)
     text = replace_once(text, "\n\treturn 0; \n}", "\n" + SUMMARY_CODE + "\treturn 0; \n}", main)
     main.write_text(text, encoding="utf-8")
 

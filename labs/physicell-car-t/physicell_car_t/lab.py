@@ -10,7 +10,7 @@ from .solver import run_assay
 
 class CarTSpheroidLab(Model):
     name = "physicell-car-t-spheroid"
-    version = "1"
+    version = "2"
     description = (
         "PhysiCell/BioFVM solid-tumor CAR-T spheroid with antigen heterogeneity, "
         "spatial infiltration, contact- and hypoxia-driven exhaustion and antigen escape."
@@ -31,7 +31,7 @@ class CarTSpheroidLab(Model):
         "motility_exhaustion_floor": 0.25,
         "hypoxia_threshold_mmhg": 10.0,
         "diffusion_dt_min": 0.08,
-        "omp_threads": 2,
+        "omp_threads": 1,
         "solver_timeout_s": 240.0,
     }
     parameters = {
@@ -49,7 +49,7 @@ class CarTSpheroidLab(Model):
         "kill_exhaustion_floor": Parameter(None, 0.0, 1.0),
         "motility_exhaustion_floor": Parameter(None, 0.0, 1.0),
         "hypoxia_threshold_mmhg": Parameter("mmHg", 0.0, 38.0),
-        "diffusion_dt_min": Parameter("min", 0.01, 0.5),
+        "diffusion_dt_min": Parameter("min", 0.01, 0.1),
         "omp_threads": Parameter(None, 1, 64),
         "solver_timeout_s": Parameter("s", 10.0, 7200.0),
     }
@@ -69,6 +69,13 @@ class CarTSpheroidLab(Model):
         "snapshot": {},
     }
     research = contract()
+
+    def __init__(self, config=None):
+        super().__init__(config)
+        if int(self.config["omp_threads"]) != self.config["omp_threads"]:
+            raise ValueError("omp_threads must be an integer")
+        if self.config["antigen_threshold"] >= self.config["antigen_saturation"]:
+            raise ValueError("antigen_threshold must be below antigen_saturation")
 
     def initial(self, rng):
         variation = self.config["patient_variation"]
@@ -137,6 +144,7 @@ class CarTSpheroidLab(Model):
         if instrument in ("escape", "summary"):
             result.update(
                 {
+                    "antigen_low_viable_cells": reading(value["antigen_low_viable_cells"], "count"),
                     "antigen_low_viable_fraction": reading(
                         value["antigen_low_viable_fraction"], None
                     ),
@@ -157,6 +165,7 @@ class CarTSpheroidLab(Model):
         if instrument in ("spatial", "summary"):
             result.update(
                 {
+                    "infusion_radius": reading(value["infusion_radius_um"], "um"),
                     "infiltrating_fraction": reading(value["infiltrating_fraction"], None),
                     "mean_infiltration_depth": reading(value["mean_infiltration_depth_um"], "um"),
                     "max_infiltration_depth": reading(value["max_infiltration_depth_um"], "um"),
@@ -167,6 +176,8 @@ class CarTSpheroidLab(Model):
     def perform(self, state, rng, action, params):
         del rng
         if action == "infuse":
+            if int(params["car_t_cells"]) != params["car_t_cells"]:
+                raise ValueError("car_t_cells must be an integer")
             if state["protocol"] is not None:
                 raise ValueError(
                     "This spheroid well has already received CAR-T cells; fork before infusion"
@@ -188,9 +199,7 @@ class CarTSpheroidLab(Model):
             )
             state["summary"] = solved["summary"]
             state["cells"] = solved["cells"]
-            state["time_s"] += 3600.0 * (
-                state["protocol"]["pre_growth_hours"] + state["protocol"]["treatment_hours"]
-            )
+            state["time_s"] = 60.0 * solved["summary"]["elapsed_min"]
             state["solve_count"] += 1
             return self._observations(state, "summary")
         if action == "read":

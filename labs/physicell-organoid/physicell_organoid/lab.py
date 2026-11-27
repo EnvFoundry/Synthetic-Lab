@@ -10,7 +10,7 @@ from .solver import run_assay
 
 class TumorOrganoidLab(Model):
     name = "physicell-tumor-organoid"
-    version = "1"
+    version = "2"
     description = (
         "PhysiCell/BioFVM tumor-organoid assay with oxygen limitation, treatment penetration, "
         "damage repair and seeded resistant subpopulations."
@@ -24,10 +24,11 @@ class TumorOrganoidLab(Model):
         "sensitive_repair_rate": 0.004167,
         "resistant_repair_ratio": 2.5,
         "drug_death_rate": 0.004167,
+        "damage_scale": 8.0,
         "patient_variation": 0.12,
         "hypoxia_threshold_mmhg": 10.0,
         "diffusion_dt_min": 0.05,
-        "omp_threads": 2,
+        "omp_threads": 1,
         "solver_timeout_s": 180.0,
     }
     parameters = {
@@ -39,9 +40,10 @@ class TumorOrganoidLab(Model):
         "sensitive_repair_rate": Parameter(None, 0.0, 0.2),
         "resistant_repair_ratio": Parameter(None, 1.0, 20.0),
         "drug_death_rate": Parameter(None, 1e-6, 0.2),
+        "damage_scale": Parameter(None, 1e-6, 1000.0),
         "patient_variation": Parameter(None, 0.0, 0.8),
         "hypoxia_threshold_mmhg": Parameter("mmHg", 0.0, 38.0),
-        "diffusion_dt_min": Parameter("min", 0.005, 0.2),
+        "diffusion_dt_min": Parameter("min", 0.005, 0.1),
         "omp_threads": Parameter(None, 1, 64),
         "solver_timeout_s": Parameter("s", 10.0, 7200.0),
     }
@@ -60,6 +62,11 @@ class TumorOrganoidLab(Model):
         "snapshot": {},
     }
     research = contract()
+
+    def __init__(self, config=None):
+        super().__init__(config)
+        if int(self.config["omp_threads"]) != self.config["omp_threads"]:
+            raise ValueError("omp_threads must be an integer")
 
     def initial(self, rng):
         variation = self.config["patient_variation"]
@@ -103,6 +110,7 @@ class TumorOrganoidLab(Model):
     def _settings(self):
         return {
             "tumor_radius_um": self.config["tumor_radius_um"],
+            "damage_scale": self.config["damage_scale"],
             "hypoxia_threshold_mmhg": self.config["hypoxia_threshold_mmhg"],
             "diffusion_dt_min": self.config["diffusion_dt_min"],
             "omp_threads": int(self.config["omp_threads"]),
@@ -118,6 +126,7 @@ class TumorOrganoidLab(Model):
             result.update(
                 {
                     "total_cells": reading(value["total_cells"], "count"),
+                    "viable_cells": reading(value["viable_cells"], "count"),
                     "viable_fraction": reading(value["viable_fraction"], None),
                     "apoptotic_fraction": reading(value["apoptotic_fraction"], None),
                     "necrotic_fraction": reading(value["necrotic_fraction"], None),
@@ -132,6 +141,7 @@ class TumorOrganoidLab(Model):
                 }
             )
         if instrument in ("resistance", "summary"):
+            result["resistant_viable_cells"] = reading(value["resistant_viable_cells"], "count")
             result["resistant_viable_fraction"] = reading(value["resistant_viable_fraction"], None)
         if instrument in ("morphology", "summary"):
             result["equivalent_diameter"] = reading(value["equivalent_diameter_um"], "um")
@@ -162,10 +172,7 @@ class TumorOrganoidLab(Model):
             )
             state["summary"] = solved["summary"]
             state["cells"] = solved["cells"]
-            state["time_s"] += 3600.0 * sum(
-                state["protocol"][name]
-                for name in ("pre_culture_hours", "exposure_hours", "recovery_hours")
-            )
+            state["time_s"] = 60.0 * solved["summary"]["elapsed_min"]
             state["solve_count"] += 1
             return self._observations(state, "summary")
         if action == "read":

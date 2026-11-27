@@ -25,6 +25,14 @@ def contract():
             "Which endpoint measurements separate poor infiltration, exhaustion and antigen escape?",
         ),
         observables={
+            "antigen_low_viable_cells": {
+                "unit": "count",
+                "description": "Absolute surviving tumor count at or below the CAR recognition threshold.",
+            },
+            "infusion_radius": {
+                "unit": "um",
+                "description": "Tumor radial extent at infusion; fixed reference for infiltration endpoints.",
+            },
             "tumor_viable_cells": {
                 "unit": "count",
                 "description": "Absolute number of viable tumor cells at the endpoint; matched branches can normalize this to the untreated burden.",
@@ -35,7 +43,7 @@ def contract():
             },
             "antigen_low_viable_fraction": {
                 "unit": None,
-                "description": "Fraction of viable tumor cells below the CAR recognition threshold.",
+                "description": "Fraction of viable tumor cells at or below the CAR recognition threshold.",
             },
             "mean_viable_antigen": {
                 "unit": None,
@@ -43,11 +51,11 @@ def contract():
             },
             "infiltrating_fraction": {
                 "unit": None,
-                "description": "Fraction of CAR-T cells located inside the initial tumor radius.",
+                "description": "Fraction of remaining CAR-T cells inside the tumor radius measured at infusion.",
             },
             "mean_infiltration_depth": {
                 "unit": "um",
-                "description": "Mean distance of infiltrating CAR-T cells inward from the initial spheroid boundary.",
+                "description": "Mean depth of infiltrating CAR-T cells from the fixed infusion-time boundary.",
             },
             "exhausted_fraction": {
                 "unit": None,

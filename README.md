@@ -9,14 +9,13 @@
 [External data](docs/artifacts.md) · [Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
-wait for physical state to evolve, acquire observations, continue later, or fork
-an earlier state to compare interventions. Sessions retain time, hidden specimen state and random
-state across process restarts. Each laboratory declares its measurement response, noise and time cost.
+wait for physical state to evolve, acquire observations, continue later, or fork an earlier state
+to compare interventions. Sessions retain time, hidden specimen state and random state across
+process restarts. Each laboratory declares its measurement response, noise and time cost.
 
-A laboratory exposes controls and a machine-readable **research contract**: the questions
-it can investigate, observables, latent variables, interventions, invariants, validity conditions,
-limitations and reference methods. Agents can discover this information through the same catalogue
-used by Python, CLI and MCP clients.
+A laboratory exposes controls and a machine-readable **research contract**: the questions it can
+investigate, observables, latent variables, interventions, invariants, validity conditions,
+limitations and reference methods. Python, CLI and MCP clients discover the same description.
 
 ## Run an experiment
 
@@ -36,6 +35,19 @@ python examples/optimize_bioprocess.py
 python -m pip install -e labs/pybamm-battery
 python examples/compare_pybamm_models.py
 ```
+
+Meep is installed from conda-forge:
+
+```sh
+conda env create -f labs/meep-photonics/environment.yml
+conda activate synthetic-lab-meep
+python -m pip install -e . -e labs/meep-photonics
+python examples/measure_photonic_cavity.py
+```
+
+The PhysiCell packages require separate C++ builds. Follow the installation commands for
+[organoid treatment](labs/physicell-organoid/README.md) and
+[CAR-T co-culture](labs/physicell-car-t/README.md).
 
 ```python
 from synthetic_lab import Lab
@@ -58,17 +70,10 @@ normalized parameters, units, provenance and visible configuration.
 Long calculations can continue independently of the submitting client:
 
 ```sh
-# Create once in an environment containing the domain package.
 synthetic-lab --db runs/research.sqlite create reaction --id reactor
-
-# Submit from a client process.
 synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
   --operation-id stage-2
-
-# Execute chemistry operations in a separate environment on the same host.
 synthetic-lab --db runs/research.sqlite worker --model reaction
-
-# Read the operation state and final result.
 synthetic-lab --db runs/research.sqlite operation reactor stage-2
 ```
 
@@ -82,15 +87,20 @@ records keep compact references, units, shape, axes and acquisition metadata; cl
 array only when needed. Unchanged large state is shared across successive operations and branches.
 
 Mature numerical software remains in its own domain package. Synthetic Lab translates persistent
-operations into solver inputs and selected solver variables into observations. The PyBaMM battery
-package is the first implementation: one current protocol can run through SPM, SPMe and DFN without
-copying their electrochemical equations into this repository.
-Its reads are noiseless cached predictions with no time advance. Current steps end at their requested
-duration or the cell parameter set's voltage cut-off, after which rest and charging can continue.
+operations into solver inputs and selected solver variables into observations:
 
-Existing sessions retain their public action descriptions. A client can submit operations and
-read configurations without installing the domain solver. Creation and local `act` calls require
-the domain package. SQLite workers currently share one host.
+- PyBaMM supplies SPM, SPMe and DFN electrochemistry for one shared battery protocol;
+- Meep supplies full-wave time-domain Maxwell solutions for a fabricated photonic-crystal cavity.
+- PhysiCell and BioFVM supply cell mechanics and transport; the two culture packages add explicit
+  treatment, antigen and immune-response equations.
+
+The Meep laboratory separates commanded design from hidden fabricated geometry, normalizes cavity
+transmission against a straight-waveguide reference, extracts resonance properties and stores a
+resonant two-dimensional field map through the external-data layer.
+
+Existing sessions retain their public action descriptions. A client can submit operations and read
+configurations without installing the domain solver. Creation and local `act` calls require the
+domain package. SQLite workers currently share one host.
 
 ## Laboratories
 
@@ -103,25 +113,32 @@ the domain package. SQLite workers currently share one host.
 | `pybamm-battery-spm` · solver package | Explore many current protocols quickly and compare them with richer cell models | PyBaMM single-particle model with lumped thermal dynamics |
 | `pybamm-battery-spme` · solver package | Study when electrolyte transport changes voltage and protocol decisions | PyBaMM single-particle model with electrolyte and lumped thermal dynamics |
 | `pybamm-battery-dfn` · solver package | Resolve porous-electrode transport under the same protocol used by SPM and SPMe | PyBaMM Doyle–Fuller–Newman model with lumped thermal dynamics |
+| `meep-photonic-cavity` · solver package | Design, fabricate and measure a photonic-crystal cavity under hidden geometric variation | Meep two-dimensional FDTD, reference-normalized transmission and resonant field imaging |
+| `physicell-tumor-organoid` · solver package | Compare exposure and recovery using absolute tumor burden and resistant survivors | PhysiCell/BioFVM two-dimensional section with diffusion, damage and repair |
+| `physicell-car-t-spheroid` · solver package | Compare CAR contact kinetics, residual burden, antigen escape and infiltration | PhysiCell/BioFVM three-dimensional co-culture with custom antigen and exhaustion dynamics |
 | `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
 | `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
 | `spectroscopic-bioreactor` · bioprocess package | Coordinate feed, aeration and optical induction from OD, fluorescence, Raman and oxygen measurements | Fed-batch mass balances, Monod growth, oxygen transfer, reporter response and production burden |
 | `fluid-tank` · optional package | Infer outlet conductance and predict a held-out inflow programme | Volume balance with linear hydraulic resistance |
 
-The built-in and reduced-order packages use synthetic parameter priors. The PyBaMM package uses an
-established solver and parameter library, but its generic `Chen2020` configuration is still not a
-device-specific twin. A calibrated twin must name its physical counterpart, data, operating range
-and held-out predictive performance. [Reaction model](docs/reaction-lab.md) ·
+The built-in and reduced-order packages use synthetic parameter priors. PyBaMM and Meep provide
+established numerical solvers, but their generic configurations are not device-specific twins. A
+calibrated twin must name its physical counterpart, measured data, operating range and predictive
+performance on conditions not used for fitting. [Reaction model](docs/reaction-lab.md) ·
 [Optical metrology](docs/optical-metrology.md) ·
+[Meep photonics](docs/meep-photonics.md) ·
 [Bioprocess spectroscopy](docs/spectroscopic-bioprocess.md) ·
 [PyBaMM battery laboratories](labs/pybamm-battery/README.md) · [Reference models](docs/models.md)
 
-The [frontier laboratory atlas](docs/lab-atlas.md) describes the long-term research scope: materials
-synthesis and catalysis, predictive biology, electrochemical energy, semiconductor and photonic
-fabrication, scientific imaging, fusion, Earth systems, manufacturing and quantum control.
-The [development direction](docs/roadmap.md) sets the current priorities. Domains use independently
-installable packages sharing the same runtime and contract.
-The [domain package catalogue](labs/README.md) lists the available installations.
+The [frontier laboratory atlas](docs/lab-atlas.md) describes the long-term research scope. The
+[development direction](docs/roadmap.md) sets current priorities. Domains use independently
+installable packages sharing the same runtime and contract; the [domain package catalogue](labs/README.md)
+lists their installation paths.
+
+The two PhysiCell laboratories execute one complete culture per well. Their saved endpoints support
+later reads and analysis; mid-culture interventions and solver-native continuation are still absent.
+Their observations are ideal simulated cell states. The example studies use paired synthetic specimens,
+with no fitted patient, drug or CAR construct. [Continuation by package](docs/solver-backed-laboratories.md#what-persists-between-operations).
 
 ## Agents, learning and data
 
@@ -129,9 +146,9 @@ The [domain package catalogue](labs/README.md) lists the available installations
 |---|---|
 | Python, CLI and JSON lines | Discover, create, submit, operate, resume, branch, inspect history and export |
 | Domain workers | Run long operations in independent dependency environments |
-| MCP stdio | The same persistent and queued operations exposed to an agent host |
+| MCP stdio | Expose the same persistent and queued operations to an agent host |
 | Gymnasium | Seeded control environments with explicit action budgets |
-| Verifiable Agent Gym | Isolated tasks whose hidden answers stay with the evaluator |
+| Verifiable Agent Gym | Tasks whose hidden answers remain with the evaluator |
 | External artifacts | Chunked images, spectra, fields and trajectories outside SQLite |
 | JSONL and calibration | Unit-bearing traces and model profiles with source references |
 
@@ -140,9 +157,9 @@ python -m pip install -e '.[rl,agent]'
 synthetic-lab --db runs/agent.sqlite mcp
 ```
 
-The catalogue returned through these interfaces includes each model's action schema and research
-contract. A scored agent receives only the permitted operations and observations; latent specimen
-state, random state and evaluator answers remain owner-side.
+The catalogue includes each model's action schema and research contract. A scored agent receives
+only permitted operations and observations; latent specimen state, random state and evaluator
+answers remain owner-side.
 
 ## Repository structure
 
@@ -151,17 +168,19 @@ state, random state and evaluator answers remain owner-side.
 | `src/synthetic_lab/runtime.py` | Sessions, ordered operation queue, short state transactions, snapshots, forks and streaming export |
 | `src/synthetic_lab/worker.py` | Domain-specific operation workers and renewable claims |
 | `src/synthetic_lab/artifacts.py` | Streamed storage for large state and observations |
-| `src/synthetic_lab/research.py` | Cross-domain scientific contract and validation |
+| `src/synthetic_lab/research.py` | Cross-domain scientific contract |
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
-| `labs/pybamm-battery/` | Solver-backed SPM, SPMe and DFN battery laboratories |
-| `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
-| `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
+| `labs/meep-photonics/` | Meep full-wave photonic-cavity spectroscopy |
+| `labs/physicell-organoid/`, `labs/physicell-car-t/` | Separately built multicellular treatment experiments |
+| `labs/pybamm-battery/` | PyBaMM SPM, SPMe and DFN battery laboratories |
+| `labs/optical-metrology/` | Fabrication and microscopy laboratories |
+| `labs/spectroscopic-bioprocess/` | Fed-batch and optical process-sensing laboratory |
 | `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings exercised with live experimental output |
 | `sql/` | Relational layout for sessions, operations, claims, snapshots and artifact metadata |
-| `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
-| `tests/` | Governing relations, persistence, concurrency and interface behavior |
+| `examples/` | End-to-end research programmes |
+| `tests/` | Governing relations, persistence, concurrency and interface behaviour |
 | `docs/` | Architecture, solver boundaries, model scope and laboratory priorities |
 
 Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,

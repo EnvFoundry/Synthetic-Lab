@@ -103,6 +103,8 @@ def _write_config(path, output, seed, protocol, patient, settings):
     _set(root, "./save/SVG/enable", "false")
     _set(root, "./options/random_seed", seed)
     _therapeutic_boundaries(root)
+    custom = _required(root, './cell_definitions/cell_definition[@name="cancer cell"]/custom_data')
+    ET.SubElement(custom, "resistant", {"units": "dimensionless"}).text = "0"
 
     _user_parameter(root, "number_of_cells", 0, kind="int")
     _user_parameter(root, "number_of_injected_cells", 0, kind="int")
@@ -118,6 +120,7 @@ def _write_config(path, output, seed, protocol, patient, settings):
     _user_parameter(root, "sensitive_repair_rate", patient["sensitive_repair_rate"])
     _user_parameter(root, "resistant_repair_rate", patient["resistant_repair_rate"])
     _user_parameter(root, "drug_death_rate", patient["drug_death_rate"])
+    _user_parameter(root, "damage_scale", settings["damage_scale"])
     _user_parameter(
         root,
         "hypoxia_threshold",
@@ -148,14 +151,12 @@ def _summary(path):
     for key, value in row.items():
         result[key] = int(value) if key in integer_fields else _finite(value, key)
     total = result["total_cells"]
-    if total <= 0:
-        raise ValueError("PhysiCell returned no tumor cells")
     viable = result["viable_cells"]
     result.update(
         {
-            "viable_fraction": viable / total,
-            "apoptotic_fraction": result["apoptotic_cells"] / total,
-            "necrotic_fraction": result["necrotic_cells"] / total,
+            "viable_fraction": viable / total if total else 0.0,
+            "apoptotic_fraction": result["apoptotic_cells"] / total if total else 0.0,
+            "necrotic_fraction": result["necrotic_cells"] / total if total else 0.0,
             "resistant_viable_fraction": (
                 result["resistant_viable_cells"] / viable if viable else 0.0
             ),
@@ -186,8 +187,6 @@ def _cells(path):
                 if isinstance(value, float) and not math.isfinite(value):
                     raise ValueError(f"PhysiCell returned a non-finite cell field: {name}")
                 columns[name].append(value)
-    if not columns["x_um"]:
-        raise ValueError("PhysiCell returned an empty cell map")
     return columns
 
 
@@ -200,7 +199,7 @@ def run_assay(*, seed, protocol, patient, settings):
         config = _write_config(_base_config(executable), output, seed, protocol, patient, settings)
         completed = subprocess.run(
             [str(executable), str(config)],
-            cwd=executable.parent,
+            cwd=work,
             text=True,
             capture_output=True,
             timeout=settings["solver_timeout_s"],
