@@ -48,9 +48,28 @@ with Lab("runs/research.sqlite") as lab:
 ```
 
 Reopen the database and call `lab.session(saved_id)` to continue. Reusing an operation identifier
-with the same request returns its recorded result. `expected_revision` detects decisions made
-against an old apparatus state. Every result records its model version, simulation interval,
+with the same request returns its recorded result. `expected_revision` rejects a decision made
+against an older apparatus state. Every result records its model identifier, simulation interval,
 normalized parameters, units, provenance and visible configuration.
+
+Long calculations can continue independently of the submitting client:
+
+```sh
+# Submit from a client process.
+synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
+  --operation-id stage-2
+
+# Execute chemistry operations in a separate environment or host.
+synthetic-lab --db runs/research.sqlite worker --model reaction
+
+# Read the operation state and final result.
+synthetic-lab --db runs/research.sqlite operation reactor stage-2
+```
+
+Submission, claim and result commit use short database transactions. The solver runs in the worker
+process without holding the database write lock. Operations on one session remain ordered, while
+different sessions can run concurrently. Workers load only the laboratories installed in their own
+environment.
 
 ## Laboratories
 
@@ -81,8 +100,9 @@ The [domain package catalogue](labs/README.md) lists the available installations
 
 | Interface | Workflow |
 |---|---|
-| Python, CLI and JSON lines | Discover, create, operate, resume, branch, inspect history and export |
-| MCP stdio | The same persistent operations exposed to an agent host |
+| Python, CLI and JSON lines | Discover, create, submit, operate, resume, branch, inspect history and export |
+| Domain workers | Run long operations in independent dependency environments |
+| MCP stdio | The same persistent and queued operations exposed to an agent host |
 | Gymnasium | Seeded control environments with explicit action budgets |
 | Verifiable Agent Gym | Isolated tasks whose hidden answers stay with the evaluator |
 | JSONL and calibration | Unit-bearing traces and model profiles with source references |
@@ -94,29 +114,30 @@ synthetic-lab --db runs/agent.sqlite mcp
 
 The catalogue returned through these interfaces includes each model's action schema and research
 contract. A scored agent receives only the permitted operations and observations; latent specimen
-state, random state and verifier answers remain owner-side.
+state, random state and evaluator answers remain owner-side.
 
 ## Repository structure
 
 | Path | Responsibility |
 |---|---|
-| `src/synthetic_lab/runtime.py` | Atomic sessions, immutable operation results, snapshots, forks and export |
+| `src/synthetic_lab/runtime.py` | Sessions, ordered operation queue, short state transactions, snapshots, forks and streaming export |
+| `src/synthetic_lab/worker.py` | Domain-specific operation workers and renewable claims |
 | `src/synthetic_lab/research.py` | Cross-domain scientific contract and validation |
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
-| `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings tested with live experimental output |
-| `sql/` | Executable relational layout, tested with runtime creation and resumption |
 | `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
+| `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings exercised with live experimental output |
+| `sql/` | Executable relational layout for sessions, operations, claims and snapshots |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
-| `tests/` | Governing relations, limits, persistence, isolation and interface round trips |
+| `tests/` | Governing relations, persistence, concurrency and interface behavior |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |
 
 Within EnvFoundry, IOP owns real instrument execution, domain laboratories own specialized solvers,
 SeedEnv prepares dependencies, Gym owns tasks and assessment, and data systems consume traces.
-Synthetic Lab owns simulated experimental state and observations. The present runtime is local
-Python and SQLite. TypeScript and Rust implement the data boundary; a Web workbench and persistent
-solver-worker service are subsequent platform work. Scientific models remain in their domain packages.
+Synthetic Lab owns simulated experimental state and observations. Python currently implements the
+worker lifecycle; the shared SQL and protocol boundary permit a Rust service and TypeScript workbench
+to use the same operation semantics without duplicating scientific models.
 
 MIT licensed.

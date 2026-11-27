@@ -25,18 +25,30 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 
 CREATE TABLE IF NOT EXISTS operations (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     session TEXT NOT NULL REFERENCES sessions(id),
     id TEXT NOT NULL,
-    revision INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+    expected_revision INTEGER,
+    base_revision INTEGER,
+    revision INTEGER,
     request TEXT NOT NULL,
-    result TEXT NOT NULL,
-    PRIMARY KEY (session, id),
+    result TEXT,
+    error TEXT,
+    worker TEXT,
+    claim_until REAL,
+    created REAL NOT NULL,
+    updated REAL NOT NULL,
+    UNIQUE (session, id),
     UNIQUE (session, revision)
 );
+
+CREATE INDEX IF NOT EXISTS operations_status_sequence
+    ON operations (status, sequence);
 
 CREATE TABLE IF NOT EXISTS profiles (
     session TEXT PRIMARY KEY REFERENCES sessions(id),
     provenance TEXT NOT NULL
 );
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;

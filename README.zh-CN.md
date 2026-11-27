@@ -10,9 +10,9 @@ Synthetic Lab 让人和 AI Agent 面对同一个实验现场：改变装置，�
 有噪声、有量程、有耗时的测量，从上次状态继续，或者从过去的现场分叉比较不同干预。
 实验时间、样品隐状态和随机状态都随会话持久保存。
 
-实验室目录同时提供操作接口和机器可读的**研究契约**：它能回答哪些
-问题、可观测量与隐变量是什么、哪些动作构成干预、需要保持哪些物理关系、何时失效、
-处于什么保真层级、有哪些领域参考方法。Python、CLI 和 MCP 共用这份实验描述。
+实验室目录同时提供操作接口和机器可读的**研究契约**：它能回答哪些问题、可观测量与
+隐变量是什么、哪些动作构成干预、需要保持哪些物理关系、何时失效、有哪些领域参考方法。
+Python、CLI 和 MCP 共用这份实验描述。
 
 ## 运行实验
 
@@ -45,8 +45,26 @@ with Lab("runs/research.sqlite") as lab:
 ```
 
 重新打开数据库后，调用 `lab.session(saved_id)` 即可接续。同一操作标识与同一请求会返回
-原结果；`expected_revision` 用于发现基于旧现场做出的决策。每条结果都记录模型版本、
-模拟时间区间、规范化参数、单位、来源和可见配置。
+原结果；`expected_revision` 会拒绝基于旧现场做出的决策。每条结果记录模型标识、模拟
+时间区间、规范化参数、单位、来源和可见配置。
+
+耗时计算可以脱离提交客户端持续运行：
+
+```sh
+# 客户端提交操作后即可退出。
+synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
+  --operation-id stage-2
+
+# 独立进程或主机执行反应实验室的计算。
+synthetic-lab --db runs/research.sqlite worker --model reaction
+
+# 客户端读取运行状态与最终结果。
+synthetic-lab --db runs/research.sqlite operation reactor stage-2
+```
+
+提交、领取和写回结果只占用短事务；领域求解在 worker 进程中运行，不持续占用数据库
+写锁。同一会话严格按提交顺序演化，不同会话可以并行。每个 worker 只需安装自己负责的
+领域包和专业求解器。
 
 ## 已实现的实验室
 
@@ -61,9 +79,9 @@ with Lab("runs/research.sqlite") as lab:
 | `spectroscopic-bioreactor` 光谱生物过程 | 联合 OD、荧光、Raman 与氧读数安排进料、曝气和光诱导 | 补料培养质量平衡、Monod 生长、氧传递、报告蛋白响应和生产负担 |
 | `fluid-tank` 独立包 | 辨识出口导流能力并预测未见过的流入程序 | 体积平衡和线性液阻 |
 
-这些是带合成参数先验的参考模拟器，不是具体设备的数字孪生。研究契约和模型文档明确
-写出近似、有效条件和失败条件。真正的实物孪生必须具有明确对应物、校准数据、工作范围、
-不确定度和未参与拟合条件上的预测结果。[反应实验室](docs/reaction-lab.md) ·
+这些是带合成参数先验的参考模拟器，不是具体设备的数字孪生。研究契约和模型文档写出
+近似、有效条件和失败条件。具体实物孪生还需要明确对应物、实测数据、工作范围，以及
+未参与拟合条件上的预测结果。[反应实验室](docs/reaction-lab.md) ·
 [光学计量实验室](docs/optical-metrology.md) · [光谱生物过程](docs/spectroscopic-bioprocess.md) ·
 [模型说明](docs/models.md)
 
@@ -73,9 +91,14 @@ with Lab("runs/research.sqlite") as lab:
 
 ## Agent、学习与数据
 
-Python、CLI、JSON 行协议和 MCP 共用同一持久运行层。Gymnasium 提供固定种子和预算
-截断的控制环境；Verifiable Agent Gym 让隐藏答案保留在评价端；JSONL 与校准接口保留
-单位、操作身份、模型版本和数据引用。
+| 接口 | 用途 |
+|---|---|
+| Python、CLI、JSON 行协议 | 发现、创建、提交、执行、接续、分支、读取历史和导出 |
+| 领域 worker | 在独立依赖环境中运行耗时操作 |
+| MCP stdio | 向 Agent 暴露同一组持久操作和排队操作 |
+| Gymnasium | 固定种子与明确动作预算的控制环境 |
+| Verifiable Agent Gym | 隐藏答案保留在评价端的任务 |
+| JSONL 与校准 | 带单位的轨迹和模型来源信息 |
 
 ```sh
 python -m pip install -e '.[rl,agent]'
@@ -87,20 +110,22 @@ synthetic-lab --db runs/agent.sqlite mcp
 
 ## 仓库边界
 
-`runtime.py` 管理原子操作、会话、快照与分支；`research.py` 管理跨领域研究契约；
-`models/` 管理物理演化、仪器观测和模型范围；`integrations/` 连接 MCP、Gymnasium 与
-Agent Gym；`calibration.py` 从带单位的观测建立模型配置；`labs/optical-metrology/` 提供
-独立安装的薄膜与显微实验室；`labs/spectroscopic-bioprocess/` 提供补料培养与光谱观测；
-`examples/` 给出完整实验；
-`tests/` 检查守恒关系、极限、持久化、隔离和真实接口往返。
-
-`spec/` 定义公共数据结构，`packages/protocol-ts/` 和 `crates/protocol/` 分别提供
-TypeScript 与 Rust 实现；两者读取由 Python 实验实际生成的数据。`sql/` 给出可执行的
-关系表结构，并测试它与运行时的创建、接续操作是否一致。
+| 路径 | 职责 |
+|---|---|
+| `src/synthetic_lab/runtime.py` | 会话、有序操作队列、短事务、快照、分支和流式导出 |
+| `src/synthetic_lab/worker.py` | 领域 worker 与可续租的操作领取 |
+| `src/synthetic_lab/research.py` | 跨领域研究契约 |
+| `src/synthetic_lab/models/` | 参考物理、仪器观测和模型范围 |
+| `src/synthetic_lab/integrations/` | MCP、Gymnasium 与 Agent Gym 接口 |
+| `labs/optical-metrology/` | 薄膜制造与荧光显微实验室 |
+| `labs/spectroscopic-bioprocess/` | 补料培养与光谱过程实验室 |
+| `spec/`、`packages/protocol-ts/`、`crates/protocol/` | 公共数据结构及 TypeScript、Rust 实现 |
+| `sql/` | 会话、操作、worker 领取和快照的关系表结构 |
+| `examples/` | 可直接运行的完整实验 |
 
 在 EnvFoundry 中，IOP 负责真实仪器执行，领域仓库负责专业求解器，SeedEnv 负责依赖，
 Gym 负责任务与评价，数据系统消费实验轨迹。Synthetic Lab 负责模拟实验状态与观测。
-当前运行时是本地 Python + SQLite，TypeScript 和 Rust 已实现数据接口；Web 工作台
-和持久求解服务仍是后续平台建设内容。科学方程由各领域包维护。
+当前 worker 生命周期由 Python 实现；公共 SQL 与数据接口允许后续 Rust 服务和 TypeScript
+工作台沿用同一操作语义，不复制科学方程。
 
 MIT 许可证。

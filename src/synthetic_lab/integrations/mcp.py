@@ -1,4 +1,4 @@
-"""Model Context Protocol tools for a trusted local research session."""
+"""Model Context Protocol tools for a trusted research session."""
 
 from mcp.server.fastmcp import FastMCP
 
@@ -7,9 +7,10 @@ def server(lab):
     mcp = FastMCP(
         "Synthetic Lab",
         instructions=(
-            "Discover laboratories and their instrument actions. Bare numbers use the documented units. "
-            "Use operation_id for retrying the same action. Readouts come from persistent simulations. "
-            "Model configuration and seeds belong to the researcher setting up the experiment."
+            "Discover laboratories and their instrument actions. Bare numbers use the documented "
+            "units. Use operation_id for retrying the same action. Long calculations may be "
+            "submitted and read later. Model configuration and seeds belong to the researcher "
+            "setting up the experiment."
         ),
     )
 
@@ -41,7 +42,7 @@ def server(lab):
         operation_id: str,
         expected_revision: int | None = None,
     ) -> dict:
-        """Operate an instrument, wait, or measure. Reuse the operation ID on retry."""
+        """Operate an instrument and wait for the result."""
         return lab.act(
             session,
             action,
@@ -49,6 +50,28 @@ def server(lab):
             operation_id=operation_id,
             expected_revision=expected_revision,
         )
+
+    @mcp.tool()
+    def submit_operation(
+        session: str,
+        action: str,
+        parameters: dict,
+        operation_id: str,
+        expected_revision: int | None = None,
+    ) -> dict:
+        """Queue a long operation without waiting for numerical work to finish."""
+        return lab.submit(
+            session,
+            action,
+            parameters,
+            operation_id=operation_id,
+            expected_revision=expected_revision,
+        )
+
+    @mcp.tool()
+    def operation_status(session: str, operation_id: str) -> dict:
+        """Read the state and result of a submitted operation."""
+        return lab.operation(session, operation_id)
 
     @mcp.tool()
     def fork(session: str, revision: int | None = None) -> dict:

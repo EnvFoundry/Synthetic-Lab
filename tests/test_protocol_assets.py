@@ -50,7 +50,9 @@ def test_sqlite_migration_creates_runtime_tables():
             )
         }
         assert {"operations", "profiles", "sessions", "snapshots"} <= tables
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+        columns = {row[1] for row in database.execute("PRAGMA table_info(operations)")}
+        assert {"status", "base_revision", "worker", "claim_until"} <= columns
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
 def test_runtime_opens_a_database_created_from_sql(tmp_path):
