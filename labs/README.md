@@ -10,6 +10,10 @@ and research contracts without moving domain equations or dependencies into the 
 | [`spectroscopic-bioprocess`](spectroscopic-bioprocess) | `spectroscopic-bioreactor` | Fed-batch growth, optical induction and complementary process sensing |
 | [`tank example`](../examples/tank-package) | `fluid-tank` | Transient fluid balance and outlet-conductance estimation |
 
+The optical package also registers `synthetic-thin-film-endpoint` and
+`synthetic-microscopy-focus` with Verifiable Agent Gym. These tasks score the final physical
+endpoint and photon-dose trade rather than a textual description of the experiment.
+
 A maintained package should provide:
 
 - one consequential experimental question rather than a catalogue of disconnected controls;
