@@ -87,7 +87,7 @@ def test_pre_fabrication_branches_compare_distinct_device_designs():
         assert difference > 1e-4
 
 
-def test_worker_executes_meep_and_field_map_uses_external_storage(tmp_path):
+def test_worker_executes_meep_and_field_map_uses_external_storage(tmp_path, assert_protocol_result):
     database = tmp_path / "photonics.sqlite"
     with Lab(database, artifact_threshold=256) as lab:
         sample = lab.create(
@@ -111,6 +111,7 @@ def test_worker_executes_meep_and_field_map_uses_external_storage(tmp_path):
 
     with Lab(database, artifact_threshold=256) as lab:
         completed = lab.operation(identifier, "field")["result"]
+        assert_protocol_result(completed)
         field = completed["observations"]["field_intensity"]
         measured = lab.operation(identifier, "resonance")["result"]["observations"]
         assert field["frequency_inverse_um"] == pytest.approx(

@@ -43,6 +43,10 @@ python -m pip install -e . -e labs/meep-photonics
 python examples/measure_photonic_cavity.py
 ```
 
+PhysiCell 的两个实验室分别编译 C++ 程序，安装命令见
+[类器官药物实验](labs/physicell-organoid/README.md)与
+[CAR-T 共培养实验](labs/physicell-car-t/README.md)。
+
 ```python
 from synthetic_lab import Lab
 
@@ -82,6 +86,7 @@ synthetic-lab --db runs/research.sqlite operation reactor stage-2
 
 - PyBaMM 为同一电池程序提供 SPM、SPMe 与 DFN 电化学求解；
 - Meep 为制造后的光子晶体腔提供时域 Maxwell 全波求解。
+- PhysiCell 与 BioFVM 提供细胞力学和输运；两个培养实验包分别实现药物响应、抗原变化及免疫响应方程。
 
 Meep 实验室区分设计值与隐藏的制造后几何，用直波导作为透射归一化参考，提取共振波长、
 谱对比度和可分辨 Q 值，并把二维共振场图存入外部实验数据层。
@@ -101,6 +106,8 @@ Meep 实验室区分设计值与隐藏的制造后几何，用直波导作为透
 | `pybamm-battery-spme` | 研究电解液输运何时改变电压与实验决策 | PyBaMM 含电解液单粒子模型与集总热模型 |
 | `pybamm-battery-dfn` | 在同一电流程序下计算多孔电极输运 | PyBaMM Doyle–Fuller–Newman 模型与集总热模型 |
 | `meep-photonic-cavity` | 在隐藏制造偏差下设计、制造和测量光子晶体腔 | Meep 二维 FDTD、参考归一化透射与共振场成像 |
+| `physicell-tumor-organoid` | 依据绝对活肿瘤负荷和耐药残余比较暴露与恢复程序 | PhysiCell/BioFVM 二维切片、扩散、损伤与修复 |
+| `physicell-car-t-spheroid` | 比较 CAR 接触动力学、残余负荷、抗原逃逸和浸润 | PhysiCell/BioFVM 三维共培养，以及领域包中的抗原与耗竭方程 |
 | `thin-film` 光子薄膜 | 依据宽带反射、干涉相位与温度选择沉积和退火终点 | 薄膜干涉、生长、孔隙率、粗糙度和热致密化 |
 | `fluorescence-microscopy` 荧光显微 | 在漂移与光漂白过程中选择焦面、视场、通道和光子剂量 | 衍射成像、探测统计和光漂白 |
 | `spectroscopic-bioreactor` 光谱生物过程 | 联合 OD、荧光、Raman 与氧读数安排进料、曝气和光诱导 | 补料培养质量平衡、Monod 生长、氧传递、报告蛋白响应和生产负担 |
@@ -115,6 +122,11 @@ Meep 实验室区分设计值与隐藏的制造后几何，用直波导作为透
 
 [前沿实验室图谱](docs/lab-atlas.md) 描述长期研究范围，[开发路线](docs/roadmap.md) 说明当前
 建设顺序，[领域包目录](labs/README.md) 列出安装方式。各领域以独立包接入共同运行层。
+
+两个 PhysiCell 实验室目前每个培养孔执行一次完整程序，保存终点供后续读取与分析；培养中途
+的观察、追加干预和数值状态接续尚未实现。当前读数是理想模拟细胞状态，示例采用配对合成
+样本，未拟合特定患者、药物或 CAR 构型。各领域的持续运行方式见
+[求解器与实验状态](docs/solver-backed-laboratories.md#what-persists-between-operations)。
 
 ## Agent、学习与数据
 
@@ -147,6 +159,7 @@ synthetic-lab --db runs/agent.sqlite mcp
 | `src/synthetic_lab/models/` | 参考物理、仪器观测和模型范围 |
 | `src/synthetic_lab/integrations/` | MCP、Gymnasium 与 Agent Gym 接口 |
 | `labs/meep-photonics/` | Meep 全波光子晶体腔光谱实验室 |
+| `labs/physicell-organoid/`、`labs/physicell-car-t/` | 分别编译的多细胞治疗实验室 |
 | `labs/pybamm-battery/` | PyBaMM 驱动的 SPM、SPMe 与 DFN 电池实验室 |
 | `labs/optical-metrology/` | 薄膜制造与荧光显微实验室 |
 | `labs/spectroscopic-bioprocess/` | 补料培养与光谱过程实验室 |

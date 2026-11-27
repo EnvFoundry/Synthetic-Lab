@@ -8,7 +8,8 @@ Domain experts supply the science and the conditions under which a prediction ca
 
 Version 0.2 has four built-in reference laboratories, two optical-metrology laboratories, a
 spectroscopic fed-batch bioreactor, an independently packaged fluid-tank example, three
-PyBaMM-backed battery laboratories and one Meep-backed photonic-cavity laboratory.
+PyBaMM-backed battery laboratories, one Meep-backed photonic-cavity laboratory, and two PhysiCell
+multicellular laboratories: a two-dimensional organoid section and a three-dimensional CAR-T spheroid.
 
 The PyBaMM family receives one persistent current protocol through SPM, SPMe and DFN. The Meep
 package receives a commanded cavity design, draws one hidden fabricated geometry, normalizes its
@@ -27,6 +28,10 @@ The built-in and first-party reduced-order models use synthetic priors or suppli
 The PyBaMM family uses the `Chen2020` parameter set and is not calibrated to a named cell. The Meep
 cavity uses a two-dimensional, lossless and nondispersive dielectric representation and is not
 calibrated to a fabricated chip.
+
+PhysiCell/BioFVM supplies cell dynamics and transport. Domain callbacks add heterogeneous drug
+response, antigen-dependent CAR attachment and killing, and continuous exhaustion. Both packages
+run whole-culture endpoint assays. They have no instrument noise model or mid-culture continuation.
 
 ## Scientific software expansion
 
@@ -48,11 +53,19 @@ cost, and identify conditions where the cheaper method changes the selected desi
 | Quantum control | QuTiP | Infer drift and design pulses that remain effective on held-out device parameters |
 
 An adapter should make a consequential intervention executable and support continuation after a
-physical termination. When comparable model families exist, run the same intervention at multiple
+physical termination where the experimental object remains usable. Whole-assay models must state
+their terminal boundary explicitly. When comparable model families exist, run the same intervention at multiple
 fidelities. Task generation should follow a meaningful model or measurement choice; a useful solver
 integration does not require inventing a second model solely to populate a comparison.
 
 ## Experiments that would extend its scientific value
+
+The current solver integrations make three concrete extensions possible: preserve native battery
+state for long cycling; compare optical solvers on a common geometry they all represent; and split
+cell culture into resumable intervals with intermediate observations and new interventions. For
+the culture packages, estimate variation across seeds before interpreting a selected receptor design
+or dose. Add measured cell counts, spatial distributions and sensor response when fitting a named assay.
+These changes should precede adding more variants of an existing endpoint experiment.
 
 | Contribution | Concrete experiment and expected deliverable |
 |---|---|

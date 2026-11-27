@@ -6,6 +6,7 @@ and research contracts without moving domain equations or dependencies into the 
 
 | Package | Laboratories | Scientific role |
 |---|---|---|
+| [`physicell-car-t`](physicell-car-t) | `physicell-car-t-spheroid` | Three-dimensional CAR-T co-culture with attachment, killing, antigen loss and exhaustion |
 | [`physicell-organoid`](physicell-organoid) | `physicell-tumor-organoid` | Oxygen-limited multicellular treatment response, penetration, damage, repair and resistant populations |
 | [`meep-photonics`](meep-photonics) | `meep-photonic-cavity` | Full-wave cavity design, fabrication variation, transmission spectroscopy and field imaging |
 | [`pybamm-battery`](pybamm-battery) | `pybamm-battery-spm`, `pybamm-battery-spme`, `pybamm-battery-dfn` | Run one battery protocol across established single-particle and porous-electrode solvers |
@@ -39,14 +40,16 @@ Install pip-based packages beside the core:
 ```sh
 python -m pip install -e .
 python -m pip install -e labs/physicell-organoid
+python -m pip install -e labs/physicell-car-t
 python -m pip install -e labs/pybamm-battery
 python -m pip install -e labs/optical-metrology
 python -m pip install -e labs/spectroscopic-bioprocess
 python -m pip install -e examples/tank-package
 ```
 
-The PhysiCell package requires the external `organoid_therapy` executable; its package README gives
-the source-build commands.
+The two PhysiCell packages build separate `organoid_therapy` and `car_t_spheroid` executables from
+separate source directories. Their READMEs give the commands. BioFVM supplies transport and PhysiCell
+supplies cell dynamics; each package adds its own stated treatment-response equations.
 
 Meep uses a conda-forge environment:
 

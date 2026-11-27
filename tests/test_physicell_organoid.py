@@ -82,7 +82,7 @@ def test_resistant_labels_survive_equal_repair_rates_and_matched_forks():
         assert maps[0] == maps[1]
 
 
-def test_worker_executes_assay_and_cell_map_uses_external_storage(tmp_path):
+def test_worker_executes_assay_and_cell_map_uses_external_storage(tmp_path, assert_protocol_result):
     database = tmp_path / "organoid.sqlite"
     with Lab(database, artifact_threshold=512) as lab:
         assay = lab.create("physicell-tumor-organoid", seed=7, config=FAST_CONFIG)
@@ -101,10 +101,13 @@ def test_worker_executes_assay_and_cell_map_uses_external_storage(tmp_path):
             worker_id="physicell-worker",
         ).run_once()
         assert result["status"] == "succeeded"
+        assert_protocol_result(result["result"])
 
     with Lab(database, artifact_threshold=512) as lab:
         assay = lab.session(identifier)
-        snapshot = assay.act("snapshot")["observations"]["cell_map"]
+        result = assay.act("snapshot")
+        assert_protocol_result(result)
+        snapshot = result["observations"]["cell_map"]
         assert "$artifact" in snapshot["value"]
         restored = lab.read_artifact(snapshot["value"]["$artifact"]["id"])
         assert len(restored["x_um"]) == snapshot["shape"][0]

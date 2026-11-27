@@ -45,6 +45,10 @@ python -m pip install -e . -e labs/meep-photonics
 python examples/measure_photonic_cavity.py
 ```
 
+The PhysiCell packages require separate C++ builds. Follow the installation commands for
+[organoid treatment](labs/physicell-organoid/README.md) and
+[CAR-T co-culture](labs/physicell-car-t/README.md).
+
 ```python
 from synthetic_lab import Lab
 
@@ -87,6 +91,8 @@ operations into solver inputs and selected solver variables into observations:
 
 - PyBaMM supplies SPM, SPMe and DFN electrochemistry for one shared battery protocol;
 - Meep supplies full-wave time-domain Maxwell solutions for a fabricated photonic-crystal cavity.
+- PhysiCell and BioFVM supply cell mechanics and transport; the two culture packages add explicit
+  treatment, antigen and immune-response equations.
 
 The Meep laboratory separates commanded design from hidden fabricated geometry, normalizes cavity
 transmission against a straight-waveguide reference, extracts resonance properties and stores a
@@ -108,6 +114,8 @@ domain package. SQLite workers currently share one host.
 | `pybamm-battery-spme` · solver package | Study when electrolyte transport changes voltage and protocol decisions | PyBaMM single-particle model with electrolyte and lumped thermal dynamics |
 | `pybamm-battery-dfn` · solver package | Resolve porous-electrode transport under the same protocol used by SPM and SPMe | PyBaMM Doyle–Fuller–Newman model with lumped thermal dynamics |
 | `meep-photonic-cavity` · solver package | Design, fabricate and measure a photonic-crystal cavity under hidden geometric variation | Meep two-dimensional FDTD, reference-normalized transmission and resonant field imaging |
+| `physicell-tumor-organoid` · solver package | Compare exposure and recovery using absolute tumor burden and resistant survivors | PhysiCell/BioFVM two-dimensional section with diffusion, damage and repair |
+| `physicell-car-t-spheroid` · solver package | Compare CAR contact kinetics, residual burden, antigen escape and infiltration | PhysiCell/BioFVM three-dimensional co-culture with custom antigen and exhaustion dynamics |
 | `thin-film` · optical package | Select deposition and anneal endpoints from broadband reflection, phase and temperature | Thin-film interference, growth, porosity, roughness and thermal densification |
 | `fluorescence-microscopy` · optical package | Choose focus, stage, channel and photon dose while samples drift and bleach | Diffraction-limited imaging, detector statistics and photobleaching |
 | `spectroscopic-bioreactor` · bioprocess package | Coordinate feed, aeration and optical induction from OD, fluorescence, Raman and oxygen measurements | Fed-batch mass balances, Monod growth, oxygen transfer, reporter response and production burden |
@@ -126,6 +134,11 @@ The [frontier laboratory atlas](docs/lab-atlas.md) describes the long-term resea
 [development direction](docs/roadmap.md) sets current priorities. Domains use independently
 installable packages sharing the same runtime and contract; the [domain package catalogue](labs/README.md)
 lists their installation paths.
+
+The two PhysiCell laboratories execute one complete culture per well. Their saved endpoints support
+later reads and analysis; mid-culture interventions and solver-native continuation are still absent.
+Their observations are ideal simulated cell states. The example studies use paired synthetic specimens,
+with no fitted patient, drug or CAR construct. [Continuation by package](docs/solver-backed-laboratories.md#what-persists-between-operations).
 
 ## Agents, learning and data
 
@@ -160,6 +173,7 @@ answers remain owner-side.
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
 | `src/synthetic_lab/calibration.py` | Fitting from unit-bearing observations with data references |
 | `labs/meep-photonics/` | Meep full-wave photonic-cavity spectroscopy |
+| `labs/physicell-organoid/`, `labs/physicell-car-t/` | Separately built multicellular treatment experiments |
 | `labs/pybamm-battery/` | PyBaMM SPM, SPMe and DFN battery laboratories |
 | `labs/optical-metrology/` | Fabrication and microscopy laboratories |
 | `labs/spectroscopic-bioprocess/` | Fed-batch and optical process-sensing laboratory |

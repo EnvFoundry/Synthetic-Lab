@@ -12,10 +12,10 @@ exposure and recovery conditions under the same hidden patient-response draw.
 ## Build the external solver
 
 ```sh
-git clone --depth 1 --branch 1.14.2 https://github.com/MathCancer/PhysiCell.git
-python labs/physicell-organoid/build_physicell.py PhysiCell
-make -C PhysiCell -j2
-export PHYSICELL_ORGANOID_EXECUTABLE="$PWD/PhysiCell/organoid_therapy"
+git clone --depth 1 --branch 1.14.2 https://github.com/MathCancer/PhysiCell.git ../PhysiCell-organoid
+python labs/physicell-organoid/build_physicell.py ../PhysiCell-organoid
+make -C ../PhysiCell-organoid -j2
+export PHYSICELL_ORGANOID_EXECUTABLE="$PWD/../PhysiCell-organoid/organoid_therapy"
 python -m pip install -e . -e labs/physicell-organoid
 python examples/screen_tumor_organoid.py
 ```

@@ -82,6 +82,25 @@ jobs:
       - run: python examples/screen_tumor_organoid.py
       - run: python -m build labs/physicell-organoid
 
+  physicell-car-t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set PhysiCell CAR-T paths
+        run: |
+          echo "PHYSICELL_CART_EXECUTABLE=${RUNNER_TEMP}/PhysiCell/car_t_spheroid" >> "${GITHUB_ENV}"
+          echo "PHYSICELL_CART_CONFIG=${RUNNER_TEMP}/PhysiCell/config/PhysiCell_settings.xml" >> "${GITHUB_ENV}"
+      - run: git clone --depth 1 --branch 1.14.2 https://github.com/MathCancer/PhysiCell.git "${RUNNER_TEMP}/PhysiCell"
+      - run: python labs/physicell-car-t/build_physicell.py "${RUNNER_TEMP}/PhysiCell"
+      - run: make -C "${RUNNER_TEMP}/PhysiCell" -j2
+      - run: python -m pip install -e ".[test]" -e labs/physicell-car-t
+      - run: pytest -q tests/test_physicell_car_t.py
+      - run: python examples/compare_car_t_kinetics.py
+      - run: python -m build labs/physicell-car-t
+
   meep:
     runs-on: ubuntu-latest
     defaults:
@@ -111,8 +130,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess -e labs/pybamm-battery
-      - run: python scripts/export_protocol_fixtures.py runs/protocol.json
+      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess -e labs/pybamm-battery -e labs/physicell-organoid -e labs/physicell-car-t
+      - run: >-
+          python scripts/export_protocol_fixtures.py runs/protocol.json
+          --initial-read fiber --initial-read thermal --initial-read battery
+          --initial-read reaction --initial-read fluid-tank --initial-read thin-film
+          --initial-read fluorescence-microscopy --initial-read spectroscopic-bioreactor
+          --initial-read pybamm-battery-spm --initial-read pybamm-battery-spme
+          --initial-read pybamm-battery-dfn
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

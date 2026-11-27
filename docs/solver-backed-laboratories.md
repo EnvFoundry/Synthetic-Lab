@@ -62,6 +62,33 @@ then compare their spectra with Meep on structures all three methods can represe
 SEM geometry and spectrometer response can subsequently turn the same operations into a named-device
 model.
 
+## Multicellular assays through PhysiCell and BioFVM
+
+`labs/physicell-organoid` builds a two-dimensional drug-exposure assay from `cancer-biorobots-sample`.
+`labs/physicell-car-t` builds a three-dimensional immune co-culture from `cancer-immune-sample`.
+Each uses a separate external source directory and executable. The builders apply domain callbacks
+to PhysiCell 1.14.2; the upstream cell mechanics and BioFVM transport remain external. Resistance,
+antigen loss, binding, killing and exhaustion are adapter assumptions, not calibrated clinical models
+supplied by the upstream solver.
+
+One well accepts one complete exposure or infusion program. A pre-intervention fork preserves the
+initial specimen draw; it does not clone a live C++ process. Endpoint reads are cached simulated
+states. Spatial snapshots include ideal per-cell fields without an instrument noise model.
+
+## What persists between operations
+
+| Package | Persistent experimental object | How a fresh worker operates on it |
+|---|---|---|
+| Reference models and optical metrology | Evolving specimen and instrument state | Advances the saved state for each timed action |
+| PyBaMM | Initial cell conditions and committed current history | Replays history, then extends the requested current step |
+| Meep | Fabricated geometry and acquired spectrum | Reuses that geometry; field acquisition uses the latest observed peak frequency |
+| PhysiCell packages | Initial specimen draw, whole-assay protocol and terminal cell state | Runs a complete assay once; later reads return its endpoint |
+
+Durable operation execution does not imply solver-native restart. Extending long battery cycling
+requires a numerical restart state. Adaptive cell-culture control requires intermediate observations
+and interventions between solver segments. Both can use the current session and artifact APIs, but
+the corresponding domain continuation is still to be implemented.
+
 ## Expansion
 
 A new solver belongs in the repository when it exercises a materially different scientific

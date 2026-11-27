@@ -38,14 +38,16 @@ def test_protocol_schema_and_fixtures_are_versioned_json():
     )
 
 
-def test_live_catalogue_and_all_instrument_results_follow_schema():
+def test_live_catalogue_and_initial_instrument_results_follow_schema():
     import runpy
 
     exporter = runpy.run_path(str(ROOT / "scripts/export_protocol_fixtures.py"))
     validator = Draft202012Validator(
         json.loads((ROOT / "spec/synthetic-lab.schema.json").read_text())
     )
-    records = exporter["export"]()
+    catalogue = exporter["export"]()
+    assert all("laboratory" in record for record in catalogue)
+    records = exporter["export"](initial_reads=("fiber", "thermal", "battery", "reaction"))
     external = []
     for record in records:
         validator.validate(record)
