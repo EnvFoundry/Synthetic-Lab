@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envfoundry-physicell-organoid-lab"
+version = "0.1.0"
+description = "PhysiCell-backed tumor-organoid treatment-response laboratory for Synthetic Lab"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+  "envfoundry-synthetic-lab>=0.2,<0.3",
+]
+
+[project.entry-points."synthetic_lab.models"]
+physicell-tumor-organoid = "physicell_organoid.lab:TumorOrganoidLab"
+
+[tool.setuptools.packages.find]
+where = ["."]

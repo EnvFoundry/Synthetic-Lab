@@ -13,6 +13,7 @@ from synthetic_lab.quantities import quantity
 
 def test_units_and_absolute_temperature():
     assert quantity({"value": 30, "unit": "mW"}, "W") == 0.03
+    assert quantity({"value": 90, "unit": "min"}, "h") == 1.5
     assert quantity({"value": 20, "unit": "degC"}, "K") == 293.15
     assert quantity({"value": 180, "unit": "deg"}, "rad") == math.pi
     with pytest.raises(ValueError):
