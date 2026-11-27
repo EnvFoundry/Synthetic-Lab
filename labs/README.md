@@ -6,9 +6,15 @@ and research contracts without moving domain equations or dependencies into the 
 
 | Package | Laboratories | Scientific role |
 |---|---|---|
+| [`pybamm-battery`](pybamm-battery) | `pybamm-battery-spm`, `pybamm-battery-spme`, `pybamm-battery-dfn` | Run one battery protocol across established single-particle and porous-electrode solvers |
 | [`optical-metrology`](optical-metrology) | `thin-film`, `fluorescence-microscopy` | Fabrication endpoint selection and dose-limited scientific imaging |
 | [`spectroscopic-bioprocess`](spectroscopic-bioprocess) | `spectroscopic-bioreactor` | Fed-batch growth, optical induction and complementary process sensing |
 | [`tank example`](../examples/tank-package) | `fluid-tank` | Transient fluid balance and outlet-conductance estimation |
+
+The PyBaMM package is the first solver-backed family. Synthetic Lab owns the experiment operations,
+history, workers and observations; PyBaMM supplies SPM, SPMe and DFN electrochemistry. The same
+current protocol can therefore be compared across several physical fidelities without copying their
+equations into this repository.
 
 The optical package also registers `synthetic-thin-film-endpoint` and
 `synthetic-microscopy-focus` with Verifiable Agent Gym. These tasks score the final physical
@@ -27,6 +33,7 @@ Install packages beside the core:
 
 ```sh
 python -m pip install -e .
+python -m pip install -e labs/pybamm-battery
 python -m pip install -e labs/optical-metrology
 python -m pip install -e labs/spectroscopic-bioprocess
 python -m pip install -e examples/tank-package
@@ -34,4 +41,5 @@ python -m pip install -e examples/tank-package
 
 Large numerical dependencies, measured assets and specialized solvers stay within their domain
 package. Real instrument operations remain delegated to IOP; the laboratory package owns simulated
-state and observation generation.
+state and observation generation. See [solver-backed laboratories](../docs/solver-backed-laboratories.md)
+for the adapter boundary.

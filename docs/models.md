@@ -1,6 +1,6 @@
 # Reference models
 
-All bundled parameter values are synthetic design choices. They support reproducible experiments and interface development. Each model can be replaced by a better solver or a measured profile while retaining the experiment interface. Noise parameters describe simulated sensor noise; total measurement uncertainty also depends on model and calibration errors.
+The reduced reference models described below use synthetic parameter choices. They support experiments and interface development. Each model can be replaced by a better solver or a measured profile while retaining the experiment interface. Noise parameters describe simulated sensor noise; total measurement uncertainty also depends on model and calibration errors. The separate [PyBaMM package](../labs/pybamm-battery/README.md) uses the published Chen2020 parameterisation and declares its own observation and continuation semantics.
 
 ## Electrothermal bench
 

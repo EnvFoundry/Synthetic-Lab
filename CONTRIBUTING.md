@@ -8,6 +8,10 @@ For a new domain, start with the independently packaged tank example and the
 signals, hidden variables, physical actions, units, time costs, governing equations, invariants,
 validity range and failure conditions. Include an executable experiment that changes a condition
 and makes a prediction on a branch or held-out setting.
+When mature scientific software already supplies the equations, follow the
+[solver adapter boundary](docs/solver-backed-laboratories.md) and the PyBaMM package. State which
+outputs include an instrument response, how early termination affects time, and how the next
+operation continues from that endpoint.
 
 The package entry point is `synthetic_lab.models`. The core discovers the package after
 installation and process restart. Domain dependencies stay in that distribution. A maintained
@@ -28,10 +32,13 @@ device credentials and unpublished sample information from shared records.
 python -m pip install -e '.[test,rl,agent]'
 python -m pip install -e examples/tank-package
 python -m pip install -e labs/optical-metrology
+python -m pip install -e labs/spectroscopic-bioprocess
+python -m pip install -e labs/pybamm-battery
 ruff check src labs examples scripts tests
 ruff format --check src labs examples scripts tests
 pytest -q
 python examples/optimize_reaction.py
+python examples/compare_pybamm_models.py
 python -m build
 ```
 

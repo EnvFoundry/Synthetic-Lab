@@ -42,14 +42,34 @@ jobs:
       - run: python -m build labs/spectroscopic-bioprocess
       - run: python -m build examples/tank-package
 
-  protocol:
-    runs-on: ubuntu-latest
+  pybamm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYBAMM_DISABLE_TELEMETRY: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess
+      - run: python -m pip install -e ".[test]" -e labs/pybamm-battery
+      - run: pytest -q tests/test_pybamm_battery.py
+      - run: python examples/compare_pybamm_models.py
+      - run: python -m build labs/pybamm-battery
+
+  protocol:
+    runs-on: ubuntu-latest
+    env:
+      PYBAMM_DISABLE_TELEMETRY: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e . -e examples/tank-package -e labs/optical-metrology -e labs/spectroscopic-bioprocess -e labs/pybamm-battery
       - run: python scripts/export_protocol_fixtures.py runs/protocol.json
       - uses: actions/setup-node@v4
         with:
