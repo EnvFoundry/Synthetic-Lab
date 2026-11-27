@@ -12,7 +12,7 @@ from .solver import resonance_summary, resonant_field, transmission_spectrum
 
 class MeepPhotonicCavity(Model):
     name = "meep-photonic-cavity"
-    version = "1"
+    version = "2"
     description = (
         "A fabricated photonic-crystal waveguide cavity measured by Meep broadband "
         "transmission spectroscopy and resonant field imaging."
@@ -118,11 +118,6 @@ class MeepPhotonicCavity(Model):
             resolution=self.config["resolution"],
             decay_time=self.config["decay_time"],
         )
-        state["resonance"] = resonance_summary(
-            state["spectrum"],
-            self.config["center_frequency"],
-            self.config["frequency_width"],
-        )
         state["solver_runs"] += 2
 
     def _noisy_spectrum(self, state, rng):
@@ -223,6 +218,8 @@ class MeepPhotonicCavity(Model):
                         "axes": ["x_um", "y_um"],
                         "extent_um": state["field"]["extent_um"],
                         "normalization": "maximum intensity equals one",
+                        "sampling": "finite-time complex-field intensity",
+                        "run_time_meep": self.config["field_run_time"],
                         "frequency_inverse_um": state["resonance"][
                             "resonance_frequency_inverse_um"
                         ],
@@ -236,6 +233,9 @@ class MeepPhotonicCavity(Model):
                 self.config["center_frequency"],
                 self.config["frequency_width"],
             )
+            if state["resonance"] != summary:
+                state["field"] = None
+            state["resonance"] = summary
             self.advance(state, self.config["spectrum_time"])
             if instrument == "spectrum":
                 return self._spectrum_observation(noisy)

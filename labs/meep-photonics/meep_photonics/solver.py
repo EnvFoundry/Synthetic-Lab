@@ -203,8 +203,23 @@ def resonance_summary(spectrum, center_frequency, frequency_width):
         right += 1
 
     quality_factor = None
-    if left < peak_index < right:
-        linewidth = abs(float(frequency[right] - frequency[left]))
+    resolved = (
+        prominence > 0.0
+        and 0 < peak_index < transmission.size - 1
+        and transmission[peak_index] > transmission[peak_index - 1]
+        and transmission[peak_index] > transmission[peak_index + 1]
+        and transmission[left] < half_level
+        and transmission[right] < half_level
+    )
+    if resolved:
+
+        def crossing(outer, inner):
+            fraction = (half_level - transmission[outer]) / (
+                transmission[inner] - transmission[outer]
+            )
+            return frequency[outer] + fraction * (frequency[inner] - frequency[outer])
+
+        linewidth = abs(float(crossing(right, right - 1) - crossing(left, left + 1)))
         if linewidth > 0.0:
             quality_factor = fitted_frequency / linewidth
 

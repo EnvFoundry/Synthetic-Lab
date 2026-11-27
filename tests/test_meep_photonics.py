@@ -90,7 +90,11 @@ def test_pre_fabrication_branches_compare_distinct_device_designs():
 def test_worker_executes_meep_and_field_map_uses_external_storage(tmp_path):
     database = tmp_path / "photonics.sqlite"
     with Lab(database, artifact_threshold=256) as lab:
-        sample = lab.create("meep-photonic-cavity", seed=11, config=FAST_CONFIG)
+        sample = lab.create(
+            "meep-photonic-cavity",
+            seed=11,
+            config={**FAST_CONFIG, "spectrometer_noise": 0.03},
+        )
         sample.act("fabricate")
         sample.submit("measure", instrument="resonance", operation_id="resonance")
         sample.submit("measure", instrument="field", operation_id="field")
@@ -108,8 +112,44 @@ def test_worker_executes_meep_and_field_map_uses_external_storage(tmp_path):
     with Lab(database, artifact_threshold=256) as lab:
         completed = lab.operation(identifier, "field")["result"]
         field = completed["observations"]["field_intensity"]
+        measured = lab.operation(identifier, "resonance")["result"]["observations"]
+        assert field["frequency_inverse_um"] == pytest.approx(
+            1.0 / measured["resonance_wavelength"]["value"]
+        )
         assert "$artifact" in field["value"]
         restored = lab.read_artifact(field["value"]["$artifact"]["id"])
         assert len(restored) == field["shape"][0]
         assert len(restored[0]) == field["shape"][1]
         assert max(max(row) for row in restored) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [1, 1, 1, 1, 1, 1, 1],
+        [0, 1, 2, 3, 4, 5, 6],
+        [0, 0.1, 0.2, 1, 0.95, 0.9, 0.8],
+    ],
+)
+def test_unresolved_peak_has_no_quality_factor(values):
+    summary = solver.resonance_summary(
+        {
+            "frequency_inverse_um": [0.31, 0.29, 0.27, 0.25, 0.23, 0.21, 0.19],
+            "transmission": values,
+        },
+        center_frequency=0.25,
+        frequency_width=0.16,
+    )
+    assert summary["quality_factor"] is None
+
+
+def test_linewidth_uses_interpolated_half_height_crossings():
+    summary = solver.resonance_summary(
+        {
+            "frequency_inverse_um": [0.31, 0.29, 0.27, 0.25, 0.23, 0.21, 0.19],
+            "transmission": [0, 0, 0.25, 1, 0.25, 0, 0],
+        },
+        center_frequency=0.25,
+        frequency_width=0.16,
+    )
+    assert summary["quality_factor"] == pytest.approx(0.25 / (2 * 0.02 * 2 / 3))
