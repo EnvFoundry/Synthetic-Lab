@@ -1,5 +1,6 @@
 """Domain workers execute queued experiments outside database write transactions."""
 
+import math
 import threading
 import uuid
 
@@ -24,7 +25,12 @@ class Worker:
         self.id = worker_id or "worker-" + uuid.uuid4().hex
         self.lease_seconds = float(lease_seconds)
         self.poll_seconds = float(poll_seconds)
-        if self.lease_seconds <= 0 or self.poll_seconds < 0:
+        if (
+            not math.isfinite(self.lease_seconds)
+            or not math.isfinite(self.poll_seconds)
+            or self.lease_seconds <= 0
+            or self.poll_seconds < 0
+        ):
             raise ValueError("lease_seconds must be positive and poll_seconds nonnegative")
 
     def run_once(self):

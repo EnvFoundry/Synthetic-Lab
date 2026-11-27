@@ -33,6 +33,9 @@ def test_protocol_schema_and_fixtures_are_versioned_json():
     assert descriptor["size_bytes"] >= 0
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate({"result": fixture})
+    Draft202012Validator({"$defs": schema["$defs"], "$ref": "#/$defs/artifactReference"}).validate(
+        artifact
+    )
 
 
 def test_live_catalogue_and_all_instrument_results_follow_schema():
@@ -72,7 +75,7 @@ def test_sqlite_migration_creates_runtime_tables():
         assert {"status", "base_revision", "worker", "claim_until"} <= operation_columns
         artifact_columns = {row[1] for row in database.execute("PRAGMA table_info(artifacts)")}
         assert {"storage_key", "media_type", "encoding", "size_bytes"} <= artifact_columns
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert database.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_runtime_opens_a_database_created_from_sql(tmp_path):

@@ -4,7 +4,10 @@ Synthetic Lab should let a researcher investigate valuable phenomena for as long
 
 ## Current implementation
 
-Version 0.2 has four built-in laboratories (fiber, thermal, battery and selective reaction), two optical-metrology laboratories (thin-film fabrication and fluorescence microscopy), a spectroscopic fed-batch bioreactor, and an independently packaged fluid-tank example. All eight expose research questions, instruments, physical relations and assumptions through the same catalogue. Persistent sessions, experiment branches, CLI, MCP, Gymnasium and Verifiable Agent Gym reuse the local runtime. JSON Schema, TypeScript and Rust describe the public data boundary and are exercised with live experimental output. Model coefficients currently come from synthetic priors or explicitly supplied configurations.
+Version 0.2 has four built-in laboratories (fiber, thermal, battery and selective reaction), two optical-metrology laboratories (thin-film fabrication and fluorescence microscopy), a spectroscopic fed-batch bioreactor, and an independently packaged fluid-tank example. All eight expose research questions, instruments, physical relations and assumptions through the same catalogue. Persistent sessions, experiment branches, CLI, MCP, Gymnasium and Verifiable Agent Gym reuse the local runtime. JSON Schema, TypeScript and Rust describe the public data boundary and are exercised with live experimental output. Domain workers execute queued operations outside database write transactions. Existing sessions can
+be used by clients without domain dependencies. Large state and observation arrays have external
+JSON storage; histories and data can be read incrementally. The optical package supplies thin-film
+endpoint and dose-limited focus tasks alongside the thermal tasks. Model coefficients currently come from synthetic priors or explicitly supplied configurations.
 
 ## Experiments that would extend its scientific value
 
@@ -24,7 +27,9 @@ Each addition should include an independent user's experiment, an executable ref
 
 Cross-domain sample transfer needs stable sample identity, ownership of each state variable and an executable coupled example. Multi-rate co-simulation needs time synchronization, exchanged boundary conditions and a measured coupling error. Integration with IOP needs operation reconciliation after uncertain outcomes, shared resource ownership and device-limited timing. A digital twin needs a named physical counterpart, model updates from new measurements and a demonstrated use of its predictions in subsequent experiments.
 
-A multi-user cloud deployment needs persistent workers, object storage for large artifacts, resource queues, tenant-aware permissions and demonstrated recovery under its target load. The local runtime provides experiment semantics that a service can reuse. Scheduling real hardware remains with its device runtime. Separate independent training workers to scale simulation before adding shared coordination.
+A multi-host cloud deployment still needs a server database, remote object storage and a service
+interface suited to its users and compute resources. The current queued workers and external JSON
+store provide same-host execution. The local runtime provides experiment semantics that a service can reuse. Scheduling real hardware remains with its device runtime. Separate independent training workers to scale simulation before adding shared coordination.
 
 ## Keeping research and evaluation useful
 

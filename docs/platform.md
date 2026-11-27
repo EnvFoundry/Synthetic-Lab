@@ -31,6 +31,10 @@ The local `act` call preserves the original synchronous interface by submitting 
 operation in the caller. `submit` plus `operation` exposes the same lifecycle to long-running
 services, CLI clients and MCP hosts.
 
+Clients use saved session descriptions and public configurations without importing domain
+solvers. Creating a specimen and using synchronous local `act` still require its domain package.
+The current SQLite worker deployment runs on one host.
+
 ## Shared data boundary
 
 The shared protocol contains:
@@ -49,6 +53,10 @@ It excludes:
 - database credentials and tenant policy;
 - solver-specific arrays that belong in external data storage;
 - task rewards and hidden answers owned by an evaluator.
+
+The implemented TypeScript and Rust types cover laboratory descriptions, completed operation
+results and external data references. Queue execution and claim handling currently live in Python.
+The Rust service and TypeScript workbench remain future implementations.
 
 A Rust service can implement the same claim, lease and commit lifecycle while calling Python or
 native solver processes. A TypeScript client can submit operations, display their state and stream

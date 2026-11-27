@@ -55,11 +55,14 @@ normalized parameters, units, provenance and visible configuration.
 Long calculations can continue independently of the submitting client:
 
 ```sh
+# Create once in an environment containing the domain package.
+synthetic-lab --db runs/research.sqlite create reaction --id reactor
+
 # Submit from a client process.
 synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
   --operation-id stage-2
 
-# Execute chemistry operations in a separate environment or host.
+# Execute chemistry operations in a separate environment on the same host.
 synthetic-lab --db runs/research.sqlite worker --model reaction
 
 # Read the operation state and final result.
@@ -72,6 +75,10 @@ different sessions can run concurrently. Workers load only the laboratories inst
 environment.
 
 Large images, spectra, fields and trajectories are stored beside the experiment database. Operation records keep compact references, units, shape, axes and acquisition metadata; clients retrieve the array only when needed. Unchanged large state is shared across successive operations and branches.
+
+Existing sessions retain their public action descriptions. A client can submit operations and
+read configurations without installing the domain solver. Creation and local `act` calls require
+the domain package. SQLite workers currently share one host.
 
 ## Laboratories
 

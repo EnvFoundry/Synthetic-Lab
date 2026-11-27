@@ -56,8 +56,15 @@ retrieve only the arrays they need.
 Large persistent state follows the same rule. Before a model runs, its state references are
 materialized inside the domain worker. After the operation, unchanged large values retain their
 existing artifact IDs; changed values receive new IDs. A branch can therefore share unchanged
-sample structure while preserving independent future evolution.
+sample structure while preserving independent future evolution. An observation referring to the
+same in-memory array as the state shares its stored object. Consecutive equal observation values
+also retain their reference; this is temporal reuse, not a global content index.
+
+MCP exposes `artifact_chunk(artifact_id, offset, limit)`. It returns base64 bytes, `next_offset`
+and `eof`, with at most one MiB per response. Python provides `read_artifact_chunk` and the JSON-line
+interface uses `artifact_chunk`. Public configuration reads do not load hidden field data.
 
 The built-in store writes JSON. A cloud service can provide another object with `put_json`, `open`
-and `discard` methods, backed by shared files or object storage. Domain-specific binary formats can
-use the same reference shape while retaining their media type and encoding.
+and `discard` methods, backed by local files or a future object-storage adapter. Chunk access expects a seekable binary
+stream from `open`. Binary domain formats still need codec support: current model-state loading
+and `read_artifact` decode JSON. SQLite processes currently run on the same host.

@@ -35,6 +35,12 @@ class Parameter:
             "maximum": self.maximum,
         }
 
+    @classmethod
+    def from_description(cls, description):
+        if description["type"] == "string":
+            return cls(choices=tuple(description["enum"]))
+        return cls(description["unit"], description["minimum"], description["maximum"])
+
 
 def arguments(values, specification):
     if not isinstance(values, dict) or values.keys() != specification.keys():

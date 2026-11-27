@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS operations (
     result TEXT,
     error TEXT,
     worker TEXT,
+    attempt TEXT,
     claim_until REAL,
     created REAL NOT NULL,
     updated REAL NOT NULL,
@@ -66,4 +67,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS artifacts_session
     ON artifacts (session);
 
-PRAGMA user_version = 3;
+CREATE TABLE IF NOT EXISTS session_interfaces (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    description TEXT NOT NULL,
+    initial_configuration TEXT NOT NULL
+);
+
+PRAGMA user_version = 4;

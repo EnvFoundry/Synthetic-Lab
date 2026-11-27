@@ -35,6 +35,11 @@ def server(lab):
         return lab.status(session)
 
     @mcp.tool()
+    def experiment_description(session: str) -> dict:
+        """Read a persisted laboratory description without installing its solver."""
+        return lab.describe_session(session)
+
+    @mcp.tool()
     def operate(
         session: str,
         action: str,
@@ -77,6 +82,11 @@ def server(lab):
     def artifact_information(artifact_id: str) -> dict:
         """Describe an external image, spectrum, field or trajectory by artifact ID."""
         return lab.artifact_info(artifact_id)
+
+    @mcp.tool()
+    def artifact_chunk(artifact_id: str, offset: int = 0, limit: int = 65536) -> dict:
+        """Read up to one MiB as base64; use next_offset to continue until eof."""
+        return lab.read_artifact_chunk(artifact_id, offset=offset, limit=limit)
 
     @mcp.tool()
     def fork(session: str, revision: int | None = None) -> dict:

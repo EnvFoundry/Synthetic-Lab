@@ -4,6 +4,49 @@
   "title": "Synthetic Lab protocol v1",
   "type": "object",
   "$defs": {
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$artifact"
+      ],
+      "properties": {
+        "$artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "uri",
+            "media_type",
+            "encoding",
+            "size_bytes"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "uri": {
+              "type": "string",
+              "pattern": "^artifact://\\S+$"
+            },
+            "media_type": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "encoding": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    },
     "jsonValue": {
       "oneOf": [
         {"type": "null"},

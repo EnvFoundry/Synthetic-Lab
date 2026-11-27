@@ -52,11 +52,14 @@ with Lab("runs/research.sqlite") as lab:
 耗时计算可以脱离提交客户端持续运行：
 
 ```sh
+# 在安装了领域包的环境中创建一次。
+synthetic-lab --db runs/research.sqlite create reaction --id reactor
+
 # 客户端提交操作后即可退出。
 synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
   --operation-id stage-2
 
-# 独立进程或主机执行反应实验室的计算。
+# 同一主机上的独立 Python 环境执行反应实验室计算。
 synthetic-lab --db runs/research.sqlite worker --model reaction
 
 # 客户端读取运行状态与最终结果。
@@ -68,6 +71,9 @@ synthetic-lab --db runs/research.sqlite operation reactor stage-2
 领域包和专业求解器。
 
 大型图像、光谱、场数据和轨迹存放在实验数据库之外。操作记录只保存引用、单位、形状、坐标轴和采集信息；客户端需要时再分块读取。连续操作与分支会共享未发生变化的大型状态。
+
+已创建的实验保存公开动作说明。客户端提交操作、读取配置和分支实验时无需安装领域求解器；
+创建实验和本地 `act` 调用需要领域包。当前 SQLite 由同一主机上的进程共用。
 
 ## 已实现的实验室
 

@@ -6,6 +6,7 @@ use serde_json::Value;
 pub const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ArtifactDescriptor {
     pub id: String,
     pub uri: String,
@@ -27,6 +28,7 @@ impl ArtifactReference {
             || self.artifact.uri != format!("artifact://{}", self.artifact.id)
             || self.artifact.media_type.trim().is_empty()
             || self.artifact.encoding.trim().is_empty()
+            || self.artifact.size_bytes > 9_007_199_254_740_991
         {
             return Err("invalid artifact reference");
         }

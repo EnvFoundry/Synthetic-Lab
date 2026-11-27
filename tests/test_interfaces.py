@@ -135,3 +135,47 @@ def test_mcp_server_over_real_stdio():
                 assert "temperature" in json.loads(result.content[0].text)["observations"]
 
     asyncio.run(run())
+
+
+def test_mcp_reads_external_camera_data_in_byte_chunks(tmp_path):
+    import base64
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    path = tmp_path / "camera.sqlite"
+    with Lab(path, artifact_threshold=256) as lab:
+        experiment = lab.create("fluorescence-microscopy", seed=3)
+        result = experiment.act("read", instrument="camera")
+        identifier = result["observations"]["image"]["value"]["$artifact"]["id"]
+        expected = lab.read_artifact(identifier)
+
+    async def read():
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "synthetic_lab.cli", "--db", str(path), "mcp"]
+        )
+        async with stdio_client(params) as (reader, writer):
+            async with ClientSession(reader, writer) as client:
+                await client.initialize()
+                chunks = []
+                offset = 0
+                while True:
+                    reply = await client.call_tool(
+                        "artifact_chunk",
+                        {
+                            "artifact_id": identifier,
+                            "offset": offset,
+                            "limit": 4096,
+                        },
+                    )
+                    assert not reply.isError
+                    value = json.loads(reply.content[0].text)
+                    chunk = base64.b64decode(value["data_base64"])
+                    assert len(chunk) <= 4096
+                    chunks.append(chunk)
+                    offset = value["next_offset"]
+                    if value["eof"]:
+                        break
+                assert json.loads(b"".join(chunks)) == expected
+
+    asyncio.run(read())

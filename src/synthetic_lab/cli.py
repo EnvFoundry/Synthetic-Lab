@@ -28,6 +28,8 @@ def dispatch(lab, request):
         return lab.create(**params).status()
     if method == "status":
         return lab.status(**params)
+    if method == "describe_session":
+        return lab.describe_session(**params)
     if method == "act":
         return lab.act(**params)
     if method == "submit":
@@ -36,6 +38,8 @@ def dispatch(lab, request):
         return lab.operation(**params)
     if method == "artifact_info":
         return lab.artifact_info(**params)
+    if method == "artifact_chunk":
+        return lab.read_artifact_chunk(**params)
     if method == "fork":
         return lab.fork(**params).status()
     if method == "history":

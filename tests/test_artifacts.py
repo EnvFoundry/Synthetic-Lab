@@ -52,7 +52,13 @@ class LargeModel:
         return {"steps": state["steps"], "first": state["field"][0][0]}
 
     def describe(self):
-        return {"name": self.name, "actions": {name: {} for name in self.actions}}
+        return {
+            "name": self.name,
+            "actions": {
+                name: {key: p.describe() for key, p in params.items()}
+                for name, params in self.actions.items()
+            },
+        }
 
 
 @pytest.fixture
@@ -176,4 +182,70 @@ def test_schema_two_database_adds_external_artifact_metadata(tmp_path):
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         assert "artifacts" in tables
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+
+
+def test_unchanged_field_is_shared_across_state_observations_and_branches(tmp_path, large_model):
+    with Lab(tmp_path / "shared.sqlite", artifact_threshold=256) as lab:
+        session = lab.create(LargeModel.name, seed=3)
+        reference = packed_state(lab, session.id)["field"]
+        for _ in range(12):
+            result = session.act("read")
+            assert result["observations"]["field"]["value"] == reference
+        branch = session.fork()
+        assert branch.act("read")["observations"]["field"]["value"] == reference
+        assert lab._db.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 1
+        branch.act("mutate", delta=5)
+        assert session.status()["configuration"]["first"] == 0
+        assert branch.status()["configuration"]["first"] == 5
+        assert lab.read_artifact(artifact_id(reference))[0][0] == 0
+
+
+def test_equal_new_observation_values_reuse_storage(tmp_path, large_model, monkeypatch):
+    def observe(model, state, rng, action, params):
+        state["time_s"] += 1
+        return {"independent": {"value": list(range(1000)), "unit": None}}
+
+    monkeypatch.setattr(LargeModel, "perform", observe)
+    with Lab(tmp_path / "observations.sqlite", artifact_threshold=256) as lab:
+        session = lab.create(LargeModel.name, seed=3)
+        first = session.act("read")["observations"]["independent"]["value"]
+        for _ in range(5):
+            assert session.act("read")["observations"]["independent"]["value"] == first
+        assert (
+            lab._db.execute("SELECT count(*) FROM artifacts WHERE role='observation'").fetchone()[0]
+            == 1
+        )
+
+
+def test_failed_serialization_removes_new_data_and_preserves_old_state(
+    tmp_path, large_model, monkeypatch
+):
+    def invalid(model, state, rng, action, params):
+        state["field"][0][0] = 5
+        return {"one": {"value": list(range(1000))}, "bad": {"value": float("nan")}}
+
+    with Lab(tmp_path / "failed.sqlite", artifact_threshold=256) as lab:
+        session = lab.create(LargeModel.name, seed=3)
+        previous_files = set(lab.artifact_store.root.rglob("*.json"))
+        previous_status = session.status()
+        monkeypatch.setattr(LargeModel, "perform", invalid)
+        with pytest.raises(ValueError):
+            session.act("read")
+        assert session.status() == previous_status
+        assert set(lab.artifact_store.root.rglob("*.json")) == previous_files
+        assert lab._db.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 1
+
+
+def test_status_and_branch_do_not_materialize_large_state(tmp_path, large_model, monkeypatch):
+    with Lab(tmp_path / "status.sqlite", artifact_threshold=256) as lab:
+        session = lab.create(LargeModel.name, seed=3)
+        session.act("mutate", delta=4)
+
+        def unavailable(value):
+            raise AssertionError("Public configuration must not read the field data")
+
+        monkeypatch.setattr(lab, "_materialize", unavailable)
+        assert session.status()["configuration"]["first"] == 4
+        assert session.fork().status()["configuration"]["first"] == 4
+        assert session.fork(at_revision=0).status()["configuration"]["first"] == 0

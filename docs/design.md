@@ -10,13 +10,33 @@ A model implements `initial(rng)`, `advance(state, seconds)`, `perform(state, rn
 
 The built-in models advance simulation time only during actions and waiting. Their action durations are part of their physical description. Closing a Python process preserves the experiment at its last committed simulation time. A wall-clock-driven device requires its own execution semantics and IOP coordination. In a cloud deployment an agent process may disconnect while an instrument is still running; that requires a durable device operation, observation of its actual outcome, and resource ownership.
 
-## Atomic operations
+## Operations and workers
 
-SQLite holds sessions, snapshots, operation results and model-profile references. A write begins an immediate transaction, reads the current revision, checks the operation identifier, computes the next state, and saves its result and snapshot together. Exceptions roll the transaction back. A stopped process leaves either the previous transaction or its complete successor. The simulation is executed before commit and has no external side effects.
+SQLite stores ordered operations with pending, running, succeeded and failed states. Submission and
+claiming use short transactions. A worker reads a committed state, releases the database write lock,
+and runs the domain model. The final state, result and snapshot are committed together. Different
+sessions can compute concurrently; operations on one session follow submission order.
 
-An operation identifier is scoped to a session. Reuse it with equivalent normalized parameters to retrieve the saved result, including the original noise sample. A different request with that identifier raises `Conflict`. An optional `expected_revision` prevents acting on a stale configuration. A duplicate already-completed request is returned even when its original expected revision is now old.
+Each claim has a distinct attempt identifier and a renewable lifetime. Reusing a worker name does
+not let an earlier computation finish a newer claim. After a worker exits, another worker can
+recalculate the unfinished operation from its original committed state. This does not resume an
+intermediate numerical step. Models must keep external side effects with IOP.
 
-SQLite serializes writes within one database. Use separate databases for independent training workers and a shared database when clients collaborate on a small local experiment. WAL keeps reads usable while another connection commits. The current scheduler executes one simulation operation per transaction. Long real-world jobs and large co-simulations need a worker or device runtime with its own operation identity.
+Completed operation identifiers return their original result for the same normalized request. A
+failed request submitted again joins the end of its session queue. An explicit expected revision
+is compared with the state before execution. The synchronous `act` method computes locally and
+requires the domain package; `submit`, `operation` and `wait_operation` support detached clients.
+
+Sessions retain their public action description and initial configuration. Later configurations
+come from completed operation results. A client can describe, submit, observe and fork an existing
+session without loading its solver or materializing its hidden arrays. Creation runs in an
+environment containing the domain package. For older databases, call `describe_session(id)` once
+in that environment to populate each existing session's description.
+
+SQLite WAL is used by processes on one host. Multi-host scheduling needs a server database.
+Large JSON values live in the [external data store](artifacts.md). Histories and file exports are
+read in batches. A saved snapshot can be branched while its parent is computing; the branch starts
+from committed state and does not inherit queued work.
 
 ## Resumption, branches and versions
 
@@ -24,7 +44,7 @@ Every committed revision has a state and random-state snapshot. `fork(at_revisio
 
 Branches initially share the same pseudorandom state for matched comparisons. Different measurement sequences consume that state differently. For independent specimens, use `create` with different seeds. For dataset splits, group branches by lineage and consider device or batch grouping as appropriate.
 
-Opening a session compares the stored model version with the installed implementation. A mismatch raises a conflict so that migration or an older model version can be selected explicitly. A new physics interpretation should carry a new model version. Old database records without a profile reference retain `theory` as their recorded model origin.
+Executing an operation compares the stored model version with the installed implementation. A mismatch raises a conflict so that migration or an older model version can be selected explicitly. A new physics interpretation should carry a new model version. Old database records without a profile reference retain `theory` as their recorded model origin.
 
 ## Extending the science
 

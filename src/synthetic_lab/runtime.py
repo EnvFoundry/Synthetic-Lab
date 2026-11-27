@@ -1,7 +1,9 @@
 """Durable simulation sessions with short database transactions and external workers."""
 
+import base64
 import copy
 import json
+import math
 import os
 import random
 import secrets
@@ -19,7 +21,7 @@ from .artifacts import (
     is_reference,
     json_size,
 )
-from .model import arguments
+from .model import Parameter, arguments
 from .models import available, load
 
 
@@ -84,7 +86,7 @@ class Lab:
     def _initialize(self):
         with self._transaction():
             schema = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if schema not in (0, 1, 2, 3):
+            if schema not in (0, 1, 2, 3, 4):
                 raise ValueError(f"Unsupported database schema {schema}")
             self._db.execute("""CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY, model TEXT NOT NULL, model_version TEXT NOT NULL,
@@ -132,6 +134,12 @@ class Lab:
                     "CREATE INDEX IF NOT EXISTS artifacts_session ON artifacts(session)"
                 )
                 self._db.execute("PRAGMA user_version = 3")
+            if schema < 4:
+                self._db.execute("ALTER TABLE operations ADD COLUMN attempt TEXT")
+                self._db.execute("""CREATE TABLE session_interfaces (
+                    session TEXT PRIMARY KEY REFERENCES sessions(id),
+                    description TEXT NOT NULL, initial_configuration TEXT NOT NULL)""")
+                self._db.execute("PRAGMA user_version = 4")
 
     @contextmanager
     def _transaction(self):
@@ -191,8 +199,9 @@ class Lab:
         session_id = self._identifier(session_id)
         rng = random.Random(seed)
         state = implementation.initial(rng)
-        packed_state, stored = self._pack_state(state)
+        stored = []
         try:
+            packed_state = self._pack_state(state, stored, {})
             with self._transaction():
                 try:
                     self._db.execute(
@@ -215,6 +224,14 @@ class Lab:
                     raise Conflict(f"Session {session_id!r} already exists") from exc
                 self._snapshot(session_id, 0, packed_state, rng)
                 self._db.execute("INSERT INTO profiles VALUES (?, ?)", (session_id, profile_json))
+                self._db.execute(
+                    "INSERT INTO session_interfaces VALUES (?, ?, ?)",
+                    (
+                        session_id,
+                        encode(implementation.describe()),
+                        encode(implementation.visible(state)),
+                    ),
+                )
                 self._insert_artifacts(session_id, None, "state", stored)
         except BaseException:
             self._discard_artifacts(stored)
@@ -238,8 +255,42 @@ class Lab:
 
     def session(self, session_id):
         with self._lock:
-            self._model(self._row(session_id))
+            self._row(session_id)
         return Session(self, session_id)
+
+    def _interface(self, session_id):
+        with self._lock:
+            interface = self._db.execute(
+                "SELECT * FROM session_interfaces WHERE session = ?", (session_id,)
+            ).fetchone()
+            if interface is None:
+                # Older databases acquire the public description once in the model environment.
+                model = self._model(self._row(session_id))
+                initial = self._db.execute(
+                    "SELECT state FROM snapshots WHERE session = ? AND revision = 0", (session_id,)
+                ).fetchone()
+                configuration = model.visible(self._materialize(json.loads(initial["state"])))
+                with self._transaction():
+                    self._db.execute(
+                        "INSERT OR IGNORE INTO session_interfaces VALUES (?, ?, ?)",
+                        (session_id, encode(model.describe()), encode(configuration)),
+                    )
+                interface = self._db.execute(
+                    "SELECT * FROM session_interfaces WHERE session = ?", (session_id,)
+                ).fetchone()
+            return interface
+
+    def describe_session(self, session_id):
+        return json.loads(self._interface(session_id)["description"])
+
+    def _configuration(self, session_id, revision, interface):
+        if revision == 0:
+            return json.loads(interface["initial_configuration"])
+        row = self._db.execute(
+            "SELECT result FROM operations WHERE session = ? AND revision = ?",
+            (session_id, revision),
+        ).fetchone()
+        return json.loads(row["result"])["configuration"]
 
     def _snapshot(self, session_id, revision, state, rng):
         self._db.execute(
@@ -269,18 +320,21 @@ class Lab:
         created = prior is None or stored.id != prior.id
         return stored.reference(), stored if created else None
 
-    def _pack_nested(self, value, stored, previous=None):
+    def _pack_nested(self, value, stored, memo, previous=None):
         if is_reference(value):
             return value
+        if isinstance(value, (dict, list)) and id(value) in memo:
+            return memo[id(value)]
         if isinstance(value, dict):
             if self.artifact_threshold is not None and json_size(value) >= self.artifact_threshold:
                 reference, item = self._store_value(value, previous=previous)
                 if item is not None:
                     stored.append(item)
+                memo[id(value)] = reference
                 return reference
             prior = previous if isinstance(previous, dict) and not is_reference(previous) else {}
             return {
-                key: self._pack_nested(child, stored, prior.get(key))
+                key: self._pack_nested(child, stored, memo, prior.get(key))
                 for key, child in value.items()
             }
         if isinstance(value, list):
@@ -288,28 +342,29 @@ class Lab:
                 reference, item = self._store_value(value, previous=previous)
                 if item is not None:
                     stored.append(item)
+                memo[id(value)] = reference
                 return reference
             prior = previous if isinstance(previous, list) else []
             return [
                 self._pack_nested(
                     child,
                     stored,
+                    memo,
                     prior[index] if index < len(prior) else None,
                 )
                 for index, child in enumerate(value)
             ]
         return value
 
-    def _pack_state(self, state, previous=None):
-        stored = []
+    def _pack_state(self, state, stored, memo, previous=None):
         prior = previous if isinstance(previous, dict) else {}
         packed = {
-            key: self._pack_nested(value, stored, prior.get(key)) for key, value in state.items()
+            key: self._pack_nested(value, stored, memo, prior.get(key))
+            for key, value in state.items()
         }
-        return packed, stored
+        return packed
 
-    def _pack_observations(self, observations):
-        stored = []
+    def _pack_observations(self, observations, stored, memo, previous):
         packed = {}
         for name, observation in observations.items():
             if isinstance(observation, dict) and "value" in observation:
@@ -320,13 +375,13 @@ class Lab:
                     and isinstance(value, (dict, list))
                     and json_size(value) >= self.artifact_threshold
                 ):
-                    item["value"], artifact = self._store_value(value)
-                    if artifact is not None:
-                        stored.append(artifact)
+                    prior = previous.get(name)
+                    prior = prior.get("value") if isinstance(prior, dict) else None
+                    item["value"] = self._pack_nested(value, stored, memo, prior)
                 packed[name] = item
             else:
-                packed[name] = self._pack_nested(observation, stored)
-        return packed, stored
+                packed[name] = self._pack_nested(observation, stored, memo, previous.get(name))
+        return packed
 
     def _insert_artifacts(self, session_id, operation_id, role, stored):
         if not stored:
@@ -398,6 +453,27 @@ class Lab:
         with self.artifact_store.open(storage_key) as stream:
             return self._materialize(json.load(stream))
 
+    def read_artifact_chunk(self, artifact_id, *, offset=0, limit=65536):
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a nonnegative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1048576:
+            raise ValueError("limit must be between 1 and 1048576 bytes")
+        row = self._artifact_row(artifact_id)
+        if offset > row["size_bytes"]:
+            raise ValueError("offset is beyond the artifact")
+        with self.artifact_store.open(row["storage_key"]) as stream:
+            stream.seek(offset)
+            content = stream.read(limit)
+        end = offset + len(content)
+        return {
+            "id": artifact_id,
+            "offset": offset,
+            "next_offset": end,
+            "size_bytes": row["size_bytes"],
+            "eof": end == row["size_bytes"],
+            "data_base64": base64.b64encode(content).decode("ascii"),
+        }
+
     def iter_artifact(self, artifact_id, *, chunk_size=65536):
         if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
             raise ValueError("chunk_size must be a positive integer")
@@ -426,8 +502,8 @@ class Lab:
     def status(self, session_id):
         with self._lock:
             row = self._row(session_id)
-            model = self._model(row)
-            state = self._materialize(json.loads(row["state"]))
+            interface = self._interface(session_id)
+            state = json.loads(row["state"])
             return {
                 "session": row["id"],
                 "model": row["model"],
@@ -439,7 +515,7 @@ class Lab:
                 "time_s": state["time_s"],
                 "source": "simulation",
                 "model_provenance": self._provenance(session_id),
-                "configuration": model.visible(state),
+                "configuration": self._configuration(session_id, row["revision"], interface),
             }
 
     def list_sessions(self):
@@ -482,10 +558,13 @@ class Lab:
         expected_revision = self._expected_revision(expected_revision)
         with self._lock:
             row = self._row(session_id)
-            model = self._model(row)
-            if action not in model.actions:
-                raise ValueError(f"Unknown action {action!r}; choose from {sorted(model.actions)}")
-            parsed = arguments(params, model.actions[action])
+            actions = self.describe_session(session_id)["actions"]
+            if action not in actions:
+                raise ValueError(f"Unknown action {action!r}; choose from {sorted(actions)}")
+            specification = {
+                name: Parameter.from_description(value) for name, value in actions[action].items()
+            }
+            parsed = arguments(params, specification)
         request = encode({"action": action, "parameters": parsed})
         now = time.time()
         with self._transaction():
@@ -498,16 +577,22 @@ class Lab:
                 if previous["request"] != request:
                     raise Conflict("Operation identifier already used for different parameters")
                 if previous["status"] == "failed":
+                    if expected_revision is not None and expected_revision != session["revision"]:
+                        raise Conflict(
+                            f"Expected revision {expected_revision}, found {session['revision']}"
+                        )
                     self._db.execute(
-                        """UPDATE operations SET status = 'pending', expected_revision = ?,
+                        """UPDATE operations SET
+                           sequence = (SELECT COALESCE(MAX(sequence), 0) + 1 FROM operations),
+                           status = 'pending', expected_revision = ?,
                            base_revision = NULL, revision = NULL, result = NULL, error = NULL,
-                           worker = NULL, claim_until = NULL, updated = ?
+                           worker = NULL, attempt = NULL, claim_until = NULL, updated = ?
                            WHERE sequence = ?""",
                         (expected_revision, now, previous["sequence"]),
                     )
                     previous = self._db.execute(
-                        "SELECT * FROM operations WHERE sequence = ?",
-                        (previous["sequence"],),
+                        "SELECT * FROM operations WHERE session = ? AND id = ?",
+                        (session_id, operation_id),
                     ).fetchone()
                 return self._operation_view(previous)
             if expected_revision is not None and expected_revision != session["revision"]:
@@ -527,19 +612,18 @@ class Lab:
             return self._operation_view(row)
 
     def _claim(self, worker_id, *, models=None, session_id=None, operation_id=None, lease=300.0):
-        if lease <= 0:
+        if not math.isfinite(lease) or lease <= 0:
             raise ValueError("lease must be positive")
         supported = tuple(available() if models is None else models)
         if not supported:
             return None
-        now = time.time()
         conditions = [
             "(o.status = 'pending' OR (o.status = 'running' AND o.claim_until < ?))",
             "NOT EXISTS (SELECT 1 FROM operations earlier WHERE earlier.session = o.session "
             "AND earlier.sequence < o.sequence AND earlier.status IN ('pending', 'running'))",
             f"s.model IN ({','.join('?' for _ in supported)})",
         ]
-        parameters = [now, *supported]
+        parameters = [0.0, *supported]
         if session_id is not None:
             conditions.append("o.session = ?")
             parameters.append(session_id)
@@ -555,6 +639,8 @@ class Lab:
                     WHERE {" AND ".join(conditions)}
                     ORDER BY o.sequence LIMIT 1"""
         with self._transaction():
+            now = time.time()
+            parameters[0] = now
             row = self._db.execute(query, parameters).fetchone()
             if row is None:
                 return None
@@ -575,14 +661,16 @@ class Lab:
                     (encode(error), now, row["sequence"]),
                 )
                 return {"failed": self.operation(row["session"], row["id"])}
+            attempt = uuid.uuid4().hex
             self._db.execute(
                 """UPDATE operations SET status = 'running', base_revision = ?, worker = ?,
-                   claim_until = ?, updated = ? WHERE sequence = ?""",
+                   claim_until = ?, updated = ?, attempt = ? WHERE sequence = ?""",
                 (
                     row["session_revision"],
                     worker_id,
                     now + lease,
                     now,
+                    attempt,
                     row["sequence"],
                 ),
             )
@@ -591,6 +679,7 @@ class Lab:
                 "session": row["session"],
                 "operation_id": row["id"],
                 "worker": worker_id,
+                "attempt": attempt,
                 "lease": lease,
                 "base_revision": row["session_revision"],
                 "model": row["model"],
@@ -604,13 +693,15 @@ class Lab:
             }
 
     def _extend_claim(self, task):
-        now = time.time()
         with self._transaction():
-            self._db.execute(
+            now = time.time()
+            updated = self._db.execute(
                 """UPDATE operations SET claim_until = ?, updated = ?
-                   WHERE sequence = ? AND status = 'running' AND worker = ?""",
-                (now + task["lease"], now, task["sequence"], task["worker"]),
+                   WHERE sequence = ? AND status = 'running' AND attempt = ?
+                   AND claim_until > ?""",
+                (now + task["lease"], now, task["sequence"], task["attempt"], now),
             )
+            return updated.rowcount == 1
 
     def _fail_task(self, task, error):
         now = time.time()
@@ -618,28 +709,37 @@ class Lab:
             self._db.execute(
                 """UPDATE operations SET status = 'failed', error = ?, worker = NULL,
                    claim_until = NULL, updated = ?
-                   WHERE sequence = ? AND status = 'running' AND worker = ?""",
-                (encode(error), now, task["sequence"], task["worker"]),
+                   WHERE sequence = ? AND status = 'running' AND attempt = ?""",
+                (encode(error), now, task["sequence"], task["attempt"]),
             )
 
     def _complete_task(self, task, state, rng, result):
-        now = time.time()
-        packed_state, state_artifacts = self._pack_state(state, previous=json.loads(task["state"]))
-        packed_observations, observation_artifacts = self._pack_observations(result["observations"])
-        result["observations"] = packed_observations
-        result_json = encode(result)
-        revision = task["base_revision"] + 1
-        created_artifacts = state_artifacts + observation_artifacts
+        state_artifacts, observation_artifacts, memo = [], [], {}
         try:
+            packed_state = self._pack_state(
+                state, state_artifacts, memo, previous=json.loads(task["state"])
+            )
+            with self._lock:
+                previous = self._db.execute(
+                    "SELECT result FROM operations WHERE session = ? AND revision = ?",
+                    (task["session"], task["base_revision"]),
+                ).fetchone()
+            observations = json.loads(previous["result"])["observations"] if previous else {}
+            result["observations"] = self._pack_observations(
+                result["observations"], observation_artifacts, memo, observations
+            )
+            result_json = encode(result)
+            revision = task["base_revision"] + 1
             with self._transaction():
+                now = time.time()
                 operation = self._db.execute(
-                    "SELECT status, worker FROM operations WHERE sequence = ?",
+                    "SELECT status, attempt FROM operations WHERE sequence = ?",
                     (task["sequence"],),
                 ).fetchone()
                 if (
                     operation is None
                     or operation["status"] != "running"
-                    or operation["worker"] != task["worker"]
+                    or operation["attempt"] != task["attempt"]
                 ):
                     raise Conflict("Operation is no longer owned by this worker")
                 row = self._row(task["session"])
@@ -669,7 +769,7 @@ class Lab:
                     observation_artifacts,
                 )
         except BaseException:
-            self._discard_artifacts(created_artifacts)
+            self._discard_artifacts(state_artifacts + observation_artifacts)
             raise
         return result
 
@@ -677,9 +777,10 @@ class Lab:
         stop = threading.Event()
 
         def heartbeat():
-            interval = max(0.1, task["lease"] / 3.0)
+            interval = task["lease"] / 3.0
             while not stop.wait(interval):
-                self._extend_claim(task)
+                if not self._extend_claim(task):
+                    return
 
         pulse = threading.Thread(target=heartbeat, daemon=True)
         pulse.start()
@@ -690,11 +791,12 @@ class Lab:
                     f"Session needs {task['model']} model version {task['model_version']}"
                 )
             request = json.loads(task["request"])
+            parameters = arguments(request["parameters"], model.actions[request["action"]])
             state = self._materialize(json.loads(task["state"]))
             rng = random.Random()
             rng.setstate(tuples(json.loads(task["rng"])))
             start = state["time_s"]
-            observations = model.perform(state, rng, request["action"], request["parameters"])
+            observations = model.perform(state, rng, request["action"], parameters)
             if state["time_s"] < start:
                 raise ValueError("A model cannot move experiment time backwards")
             result = {
@@ -736,8 +838,10 @@ class Lab:
         return self.operation(claimed["session"], claimed["operation_id"])
 
     def wait_operation(self, session_id, operation_id, *, timeout=None, poll=0.02):
-        if timeout is not None and timeout < 0:
+        if timeout is not None and (not math.isfinite(timeout) or timeout < 0):
             raise ValueError("timeout must be nonnegative")
+        if not math.isfinite(poll) or poll <= 0:
+            raise ValueError("poll must be positive")
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             current = self.operation(session_id, operation_id)
@@ -782,16 +886,9 @@ class Lab:
 
     def fork(self, session_id, *, at_revision=None, session_id_new=None):
         identifier = self._identifier(session_id_new)
+        interface = self._interface(session_id)
         with self._transaction():
             row = self._row(session_id)
-            self._model(row)
-            active = self._db.execute(
-                """SELECT 1 FROM operations WHERE session = ?
-                   AND status IN ('pending', 'running') LIMIT 1""",
-                (session_id,),
-            ).fetchone()
-            if active is not None:
-                raise Conflict("Finish queued operations before forking this session")
             revision = row["revision"] if at_revision is None else at_revision
             if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
                 raise ValueError("at_revision must be a nonnegative integer")
@@ -826,6 +923,14 @@ class Lab:
             self._db.execute(
                 "INSERT INTO profiles VALUES (?, ?)",
                 (identifier, encode(self._provenance(session_id))),
+            )
+            self._db.execute(
+                "INSERT INTO session_interfaces VALUES (?, ?, ?)",
+                (
+                    identifier,
+                    interface["description"],
+                    encode(self._configuration(session_id, revision, interface)),
+                ),
             )
         return Session(self, identifier)
 
