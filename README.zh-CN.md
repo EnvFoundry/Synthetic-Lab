@@ -4,7 +4,8 @@
 
 [English](README.md) · [前沿实验室图谱](docs/lab-atlas.md) ·
 [研究契约](docs/research-contract.md) · [架构](docs/design.md) ·
-[Agent 与 RL 接口](docs/interfaces.md) · [跨语言接口](docs/platform.md) · [贡献说明](CONTRIBUTING.md)
+[Agent 与 RL 接口](docs/interfaces.md) · [跨语言接口](docs/platform.md) ·
+[实验数据](docs/artifacts.md) · [贡献说明](CONTRIBUTING.md)
 
 Synthetic Lab 让人和 AI Agent 面对同一个实验现场：改变装置，等待物理状态演化，获取
 有噪声、有量程、有耗时的测量，从上次状态继续，或者从过去的现场分叉比较不同干预。
@@ -51,11 +52,14 @@ with Lab("runs/research.sqlite") as lab:
 耗时计算可以脱离提交客户端持续运行：
 
 ```sh
+# 在安装了领域包的环境中创建一次。
+synthetic-lab --db runs/research.sqlite create reaction --id reactor
+
 # 客户端提交操作后即可退出。
 synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
   --operation-id stage-2
 
-# 独立进程或主机执行反应实验室的计算。
+# 同一主机上的独立 Python 环境执行反应实验室计算。
 synthetic-lab --db runs/research.sqlite worker --model reaction
 
 # 客户端读取运行状态与最终结果。
@@ -65,6 +69,11 @@ synthetic-lab --db runs/research.sqlite operation reactor stage-2
 提交、领取和写回结果只占用短事务；领域求解在 worker 进程中运行，不持续占用数据库
 写锁。同一会话严格按提交顺序演化，不同会话可以并行。每个 worker 只需安装自己负责的
 领域包和专业求解器。
+
+大型图像、光谱、场数据和轨迹存放在实验数据库之外。操作记录只保存引用、单位、形状、坐标轴和采集信息；客户端需要时再分块读取。连续操作与分支会共享未发生变化的大型状态。
+
+已创建的实验保存公开动作说明。客户端提交操作、读取配置和分支实验时无需安装领域求解器；
+创建实验和本地 `act` 调用需要领域包。当前 SQLite 由同一主机上的进程共用。
 
 ## 已实现的实验室
 
@@ -98,6 +107,7 @@ synthetic-lab --db runs/research.sqlite operation reactor stage-2
 | MCP stdio | 向 Agent 暴露同一组持久操作和排队操作 |
 | Gymnasium | 固定种子与明确动作预算的控制环境 |
 | Verifiable Agent Gym | 隐藏答案保留在评价端的任务 |
+| 外部实验数据 | 将大型图像、光谱、场数据和轨迹存放在 SQLite 之外 |
 | JSONL 与校准 | 带单位的轨迹和模型来源信息 |
 
 ```sh
@@ -114,13 +124,14 @@ synthetic-lab --db runs/agent.sqlite mcp
 |---|---|
 | `src/synthetic_lab/runtime.py` | 会话、有序操作队列、短事务、快照、分支和流式导出 |
 | `src/synthetic_lab/worker.py` | 领域 worker 与可续租的操作领取 |
+| `src/synthetic_lab/artifacts.py` | 大型状态与观测的流式存储 |
 | `src/synthetic_lab/research.py` | 跨领域研究契约 |
 | `src/synthetic_lab/models/` | 参考物理、仪器观测和模型范围 |
 | `src/synthetic_lab/integrations/` | MCP、Gymnasium 与 Agent Gym 接口 |
 | `labs/optical-metrology/` | 薄膜制造与荧光显微实验室 |
 | `labs/spectroscopic-bioprocess/` | 补料培养与光谱过程实验室 |
 | `spec/`、`packages/protocol-ts/`、`crates/protocol/` | 公共数据结构及 TypeScript、Rust 实现 |
-| `sql/` | 会话、操作、worker 领取和快照的关系表结构 |
+| `sql/` | 会话、操作、worker 领取、快照和实验数据元信息 |
 | `examples/` | 可直接运行的完整实验 |
 
 在 EnvFoundry 中，IOP 负责真实仪器执行，领域仓库负责专业求解器，SeedEnv 负责依赖，

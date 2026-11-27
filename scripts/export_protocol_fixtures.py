@@ -10,7 +10,7 @@ from synthetic_lab import Lab
 
 def export():
     records = []
-    with Lab(":memory:") as lab:
+    with Lab(":memory:", artifact_threshold=512) as lab:
         for description in lab.catalogue():
             records.append({"laboratory": description})
             session = lab.create(description["name"], seed=7)

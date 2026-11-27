@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .artifacts import LocalArtifactStore
 from .runtime import Lab, OperationFailed
 from .worker import Worker
 
@@ -27,12 +28,18 @@ def dispatch(lab, request):
         return lab.create(**params).status()
     if method == "status":
         return lab.status(**params)
+    if method == "describe_session":
+        return lab.describe_session(**params)
     if method == "act":
         return lab.act(**params)
     if method == "submit":
         return lab.submit(**params)
     if method == "operation":
         return lab.operation(**params)
+    if method == "artifact_info":
+        return lab.artifact_info(**params)
+    if method == "artifact_chunk":
+        return lab.read_artifact_chunk(**params)
     if method == "fork":
         return lab.fork(**params).status()
     if method == "history":
@@ -66,6 +73,10 @@ def operation_parser(commands, name, help_text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default="synthetic-lab.sqlite")
+    parser.add_argument(
+        "--artifacts",
+        help="Directory shared by clients and workers for external experiment data",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="Describe models, controls and units")
     commands.add_parser("sessions", help="List persisted sessions")
@@ -81,6 +92,11 @@ def main():
     operation = commands.add_parser("operation", help="Read a queued operation")
     operation.add_argument("session")
     operation.add_argument("operation_id")
+    artifact_info = commands.add_parser("artifact-info", help="Describe external experiment data")
+    artifact_info.add_argument("artifact_id")
+    artifact = commands.add_parser("artifact", help="Write external experiment data to a file")
+    artifact.add_argument("artifact_id")
+    artifact.add_argument("path")
     fork = commands.add_parser("fork")
     fork.add_argument("session")
     fork.add_argument("--revision", type=int)
@@ -101,7 +117,8 @@ def main():
     commands.add_parser("mcp", help="Run the optional MCP stdio server")
     args = parser.parse_args()
     try:
-        with Lab(args.db) as lab:
+        store = LocalArtifactStore(args.artifacts) if args.artifacts else None
+        with Lab(args.db, artifact_store=store) as lab:
             if args.command == "list":
                 result = lab.catalogue()
             elif args.command == "sessions":
@@ -123,6 +140,10 @@ def main():
                 )
             elif args.command == "operation":
                 result = lab.operation(args.session, args.operation_id)
+            elif args.command == "artifact-info":
+                result = lab.artifact_info(args.artifact_id)
+            elif args.command == "artifact":
+                result = lab.export_artifact(args.artifact_id, args.path)
             elif args.command == "fork":
                 result = lab.fork(
                     args.session, at_revision=args.revision, session_id_new=args.id

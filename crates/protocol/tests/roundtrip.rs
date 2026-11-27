@@ -1,4 +1,4 @@
-use synthetic_lab_protocol::{OperationResult, PROTOCOL_VERSION};
+use synthetic_lab_protocol::{ArtifactReference, OperationResult, PROTOCOL_VERSION};
 
 #[test]
 fn parses_and_round_trips_protocol_fixture() {
@@ -13,6 +13,16 @@ fn parses_and_round_trips_protocol_fixture() {
     let encoded = serde_json::to_string(&result).expect("result should serialize");
     let decoded: OperationResult = serde_json::from_str(&encoded).expect("round trip should parse");
     assert_eq!(decoded, result);
+}
+
+#[test]
+fn parses_external_artifact_reference() {
+    let source = include_str!("../../../spec/examples/artifact-reference.json");
+    let reference: ArtifactReference = serde_json::from_str(source).expect("fixture should parse");
+    reference
+        .validate()
+        .expect("fixture should contain a coherent artifact URI");
+    assert_eq!(reference.artifact.size_bytes, 4823);
 }
 
 #[test]
@@ -45,4 +55,21 @@ fn native_nonfinite_times_are_not_valid_operations() {
         result.end_s = value;
         assert!(result.validate().is_err());
     }
+}
+
+#[test]
+fn artifact_descriptors_follow_typescript_limits() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../spec/examples/artifact-reference.json"
+    ))
+    .unwrap();
+    let mut too_large = fixture.clone();
+    too_large["$artifact"]["size_bytes"] = serde_json::json!(9_007_199_254_740_992u64);
+    assert!(serde_json::from_value::<ArtifactReference>(too_large)
+        .unwrap()
+        .validate()
+        .is_err());
+    let mut extra = fixture;
+    extra["$artifact"]["unrecognized"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<ArtifactReference>(extra).is_err());
 }

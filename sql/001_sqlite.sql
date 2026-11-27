@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS operations (
     result TEXT,
     error TEXT,
     worker TEXT,
+    attempt TEXT,
     claim_until REAL,
     created REAL NOT NULL,
     updated REAL NOT NULL,
@@ -51,4 +52,25 @@ CREATE TABLE IF NOT EXISTS profiles (
     provenance TEXT NOT NULL
 );
 
-PRAGMA user_version = 2;
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    operation_id TEXT,
+    role TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    encoding TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS artifacts_session
+    ON artifacts (session);
+
+CREATE TABLE IF NOT EXISTS session_interfaces (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    description TEXT NOT NULL,
+    initial_configuration TEXT NOT NULL
+);
+
+PRAGMA user_version = 4;

@@ -14,6 +14,8 @@ synthetic-lab --db runs/lab.sqlite act heater read
 synthetic-lab --db runs/lab.sqlite fork heater --id comparison
 synthetic-lab --db runs/lab.sqlite status heater
 synthetic-lab --db runs/lab.sqlite export heater runs/heater.jsonl
+synthetic-lab --db runs/lab.sqlite artifact-info ARTIFACT_ID
+synthetic-lab --db runs/lab.sqlite artifact ARTIFACT_ID runs/image.json
 ```
 
 `act` submits an operation and waits for completion. Long calculations can be submitted without
@@ -29,14 +31,16 @@ synthetic-lab --db runs/lab.sqlite worker --model thermal
 A worker can load one or several laboratory names. Operations on one session run in submission
 order; workers may process different sessions concurrently. The numerical solver runs outside the
 database write transaction. Stopping a worker before commit leaves the prior experimental state
-unchanged, and another worker can continue the queued operation.
+unchanged. Once the old claim expires, another worker recalculates that operation from the
+committed state. A branch can start from a committed snapshot while its parent is still computing.
 
 Use unique session IDs when running creation commands again, or continue an existing session. Each
 command emits JSON. Invalid actions return an error and leave the simulation state unchanged.
 
 `synthetic-lab --db runs/lab.sqlite serve` reads JSON requests on stdin and writes one result per
 line. The envelope has `id`, `method` and `params`. Supported methods are `catalogue`, `sessions`,
-`create`, `status`, `act`, `submit`, `operation`, `fork` and `history`.
+`create`, `status`, `describe_session`, `act`, `submit`, `operation`, `artifact_info`,
+`artifact_chunk`, `fork` and `history`.
 
 ```json
 {"id":1,"method":"submit","params":{"session_id":"heater","action":"wait","params":{"seconds":3600},"operation_id":"long-settle"}}
@@ -58,7 +62,8 @@ Install `.[agent]`. Configure a stdio-compatible host with the executable and an
 ```
 
 The tools are `laboratories`, `sessions`, `create`, `observe_configuration`, `operate`,
-`submit_operation`, `operation_status`, `fork` and `history`. The catalogue describes valid action
+`experiment_description`, `submit_operation`, `operation_status`, `artifact_information`,
+`artifact_chunk`, `fork` and `history`. The catalogue describes valid action
 names, parameter bounds and units. `operate` waits for a result. `submit_operation` returns a
 pending or running operation immediately, and `operation_status` returns its current state and final
 result. Operation IDs let a host repeat a request after losing a response without applying the
@@ -88,6 +93,10 @@ with Lab("runs/lab.sqlite") as lab:
 worker environment that owns its solver dependencies. A microscopy worker can therefore use image
 libraries and a reaction worker can use chemistry libraries without placing both dependency sets in
 the client environment.
+
+For a client without the domain package, use `describe_session`, `status`, `submit`,
+`operation` and `wait_operation`. Create the specimen in its domain environment. The local
+`act` call still requires that environment. All SQLite processes share one host.
 
 ## Gymnasium and policy learning
 
@@ -125,7 +134,9 @@ For parallel sampling, construct an independent `ThermalControlEnv` for each Gym
 
 ## Verifiable Agent Gym
 
-Install this project and [Verifiable Agent Gym](https://github.com/EnvFoundry/Verifiable-Agent-Gym) in the host environment. The `agent_gym.tasks` entry point registers `synthetic-thermal`.
+Install this project and [Verifiable Agent Gym](https://github.com/EnvFoundry/Verifiable-Agent-Gym) in the host environment. The `agent_gym.tasks` entry point registers `synthetic-thermal`. Installing `labs/optical-metrology` also registers
+`synthetic-thin-film-endpoint` and `synthetic-microscopy-focus`; their public instruments,
+objectives and dose limits are described in the [optical package](../labs/optical-metrology/README.md).
 
 ```sh
 agent-gym list
@@ -143,9 +154,7 @@ interval, observations and visible settings. Latent state and random-state snaps
 database. `Lab.iter_history()` supports incremental consumers without loading a complete long
 experiment into memory.
 
-Large images, fields and trajectories still need an external data store rather than inline JSON.
-The operation result is the place for a compact reference, shape, units and acquisition metadata;
-the next storage layer will implement that reference without changing domain equations.
+Large images, spectra, fields and trajectories are written to the configured artifact store. The operation result retains a compact reference, shape, units, axes and acquisition metadata. Use `artifact-info` to read metadata, `artifact` to copy an object without loading it in memory, or `Lab.iter_artifact()` for bounded byte chunks. File-backed databases use a sibling `<database>.artifacts` directory unless `--artifacts` or an explicit store selects a shared location. See [External experiment data](artifacts.md).
 
 Group related branches by lineage when forming dataset splits. Group empirical records by the relevant device, batch or date when measuring generalization. Data Engineering can ingest these records through a source adapter appropriate to its own record schema.
 

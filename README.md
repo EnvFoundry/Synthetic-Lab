@@ -5,7 +5,7 @@
 [中文](README.zh-CN.md) · [Laboratory atlas](docs/lab-atlas.md) ·
 [Research contract](docs/research-contract.md) · [Architecture](docs/design.md) ·
 [Agent and RL interfaces](docs/interfaces.md) · [Language interfaces](docs/platform.md) ·
-[Contribute](CONTRIBUTING.md)
+[External data](docs/artifacts.md) · [Contribute](CONTRIBUTING.md)
 
 Synthetic Lab gives people and AI agents the same experimental surface: change an apparatus,
 wait for physical state to evolve, acquire finite and noisy measurements, continue later, or fork
@@ -55,11 +55,14 @@ normalized parameters, units, provenance and visible configuration.
 Long calculations can continue independently of the submitting client:
 
 ```sh
+# Create once in an environment containing the domain package.
+synthetic-lab --db runs/research.sqlite create reaction --id reactor
+
 # Submit from a client process.
 synthetic-lab --db runs/research.sqlite submit reactor wait '{"seconds":3600}' \
   --operation-id stage-2
 
-# Execute chemistry operations in a separate environment or host.
+# Execute chemistry operations in a separate environment on the same host.
 synthetic-lab --db runs/research.sqlite worker --model reaction
 
 # Read the operation state and final result.
@@ -70,6 +73,12 @@ Submission, claim and result commit use short database transactions. The solver 
 process without holding the database write lock. Operations on one session remain ordered, while
 different sessions can run concurrently. Workers load only the laboratories installed in their own
 environment.
+
+Large images, spectra, fields and trajectories are stored beside the experiment database. Operation records keep compact references, units, shape, axes and acquisition metadata; clients retrieve the array only when needed. Unchanged large state is shared across successive operations and branches.
+
+Existing sessions retain their public action descriptions. A client can submit operations and
+read configurations without installing the domain solver. Creation and local `act` calls require
+the domain package. SQLite workers currently share one host.
 
 ## Laboratories
 
@@ -105,6 +114,7 @@ The [domain package catalogue](labs/README.md) lists the available installations
 | MCP stdio | The same persistent and queued operations exposed to an agent host |
 | Gymnasium | Seeded control environments with explicit action budgets |
 | Verifiable Agent Gym | Isolated tasks whose hidden answers stay with the evaluator |
+| External artifacts | Chunked images, spectra, fields and trajectories outside SQLite |
 | JSONL and calibration | Unit-bearing traces and model profiles with source references |
 
 ```sh
@@ -122,6 +132,7 @@ state, random state and evaluator answers remain owner-side.
 |---|---|
 | `src/synthetic_lab/runtime.py` | Sessions, ordered operation queue, short state transactions, snapshots, forks and streaming export |
 | `src/synthetic_lab/worker.py` | Domain-specific operation workers and renewable claims |
+| `src/synthetic_lab/artifacts.py` | Streamed storage for large state and observations |
 | `src/synthetic_lab/research.py` | Cross-domain scientific contract and validation |
 | `src/synthetic_lab/models/` | Reference physics, observations and model contracts |
 | `src/synthetic_lab/integrations/` | MCP, Gymnasium and Verifiable Agent Gym adapters |
@@ -129,7 +140,7 @@ state, random state and evaluator answers remain owner-side.
 | `labs/optical-metrology/` | Independently installable fabrication and microscopy laboratories |
 | `labs/spectroscopic-bioprocess/` | Independently installable fed-batch and optical process-sensing laboratory |
 | `spec/`, `packages/protocol-ts/`, `crates/protocol/` | JSON Schema and TypeScript/Rust bindings exercised with live experimental output |
-| `sql/` | Executable relational layout for sessions, operations, claims and snapshots |
+| `sql/` | Relational layout for sessions, operations, claims, snapshots and artifact metadata |
 | `examples/` | End-to-end research, alignment, pulse, reaction, optical and learning programmes |
 | `tests/` | Governing relations, persistence, concurrency and interface behavior |
 | `docs/` | Architecture, model scope, laboratory priorities and contribution boundaries |

@@ -8,6 +8,18 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export interface ArtifactDescriptor {
+  id: string;
+  uri: string;
+  media_type: string;
+  encoding: string;
+  size_bytes: number;
+}
+
+export interface ArtifactReference {
+  $artifact: ArtifactDescriptor;
+}
+
 export interface NumericParameter {
   type: "number";
   unit: string | null;
@@ -113,6 +125,24 @@ function isJsonValue(value: unknown, parents = new Set<object>()): value is Json
   const valid = children.every(child => isJsonValue(child, parents));
   parents.delete(value);
   return valid;
+}
+
+export function isArtifactReference(value: unknown): value is ArtifactReference {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !isRecord(value.$artifact)) {
+    return false;
+  }
+  const artifact = value.$artifact;
+  const fields = ["id", "uri", "media_type", "encoding", "size_bytes"];
+  return (
+    Object.keys(artifact).length === fields.length &&
+    fields.every(key => Object.hasOwn(artifact, key)) &&
+    typeof artifact.id === "string" && artifact.id.trim().length > 0 &&
+    typeof artifact.uri === "string" && artifact.uri === `artifact://${artifact.id}` &&
+    typeof artifact.media_type === "string" && artifact.media_type.trim().length > 0 &&
+    typeof artifact.encoding === "string" && artifact.encoding.trim().length > 0 &&
+    typeof artifact.size_bytes === "number" && Number.isSafeInteger(artifact.size_bytes) &&
+    artifact.size_bytes >= 0
+  );
 }
 
 export function isOperationResult(value: unknown): value is OperationResult {

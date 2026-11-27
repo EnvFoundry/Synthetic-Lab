@@ -1,7 +1,10 @@
 """Durable simulation sessions with short database transactions and external workers."""
 
+import base64
 import copy
 import json
+import math
+import os
 import random
 import secrets
 import sqlite3
@@ -11,7 +14,14 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .model import arguments
+from .artifacts import (
+    LocalArtifactStore,
+    MemoryArtifactStore,
+    StoredArtifact,
+    is_reference,
+    json_size,
+)
+from .model import Parameter, arguments
 from .models import available, load
 
 
@@ -38,11 +48,31 @@ def tuples(value):
 class Lab:
     """A durable experiment database shared by clients and domain worker processes."""
 
-    def __init__(self, database="synthetic-lab.sqlite"):
+    def __init__(
+        self,
+        database="synthetic-lab.sqlite",
+        *,
+        artifact_store=None,
+        artifact_threshold=65536,
+    ):
         self.database = str(database)
         if self.database != ":memory:":
             Path(self.database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
             self.database = str(Path(self.database).expanduser().resolve())
+        if artifact_threshold is not None and (
+            isinstance(artifact_threshold, bool)
+            or not isinstance(artifact_threshold, int)
+            or artifact_threshold <= 0
+        ):
+            raise ValueError("artifact_threshold must be a positive integer or null")
+        self.artifact_threshold = artifact_threshold
+        if artifact_store is None:
+            artifact_store = (
+                MemoryArtifactStore()
+                if self.database == ":memory:"
+                else LocalArtifactStore(self.database + ".artifacts")
+            )
+        self.artifact_store = artifact_store
         self._lock = threading.RLock()
         self._db = sqlite3.connect(
             self.database, timeout=30, isolation_level=None, check_same_thread=False
@@ -56,7 +86,7 @@ class Lab:
     def _initialize(self):
         with self._transaction():
             schema = self._db.execute("PRAGMA user_version").fetchone()[0]
-            if schema not in (0, 1, 2):
+            if schema not in (0, 1, 2, 3, 4):
                 raise ValueError(f"Unsupported database schema {schema}")
             self._db.execute("""CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY, model TEXT NOT NULL, model_version TEXT NOT NULL,
@@ -94,7 +124,22 @@ class Lab:
                         (now, now),
                     )
                     self._db.execute("DROP TABLE operations_v1")
-                self._db.execute("PRAGMA user_version = 2")
+            if schema in (0, 1, 2):
+                self._db.execute("""CREATE TABLE IF NOT EXISTS artifacts (
+                    id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id),
+                    operation_id TEXT, role TEXT NOT NULL, storage_key TEXT NOT NULL,
+                    media_type TEXT NOT NULL, encoding TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL, created REAL NOT NULL)""")
+                self._db.execute(
+                    "CREATE INDEX IF NOT EXISTS artifacts_session ON artifacts(session)"
+                )
+                self._db.execute("PRAGMA user_version = 3")
+            if schema < 4:
+                self._db.execute("ALTER TABLE operations ADD COLUMN attempt TEXT")
+                self._db.execute("""CREATE TABLE session_interfaces (
+                    session TEXT PRIMARY KEY REFERENCES sessions(id),
+                    description TEXT NOT NULL, initial_configuration TEXT NOT NULL)""")
+                self._db.execute("PRAGMA user_version = 4")
 
     @contextmanager
     def _transaction(self):
@@ -154,28 +199,43 @@ class Lab:
         session_id = self._identifier(session_id)
         rng = random.Random(seed)
         state = implementation.initial(rng)
-        with self._transaction():
-            try:
+        stored = []
+        try:
+            packed_state = self._pack_state(state, stored, {})
+            with self._transaction():
+                try:
+                    self._db.execute(
+                        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            session_id,
+                            model,
+                            implementation.version,
+                            encode(implementation.config),
+                            seed,
+                            session_id,
+                            None,
+                            None,
+                            0,
+                            encode(packed_state),
+                            encode(rng.getstate()),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise Conflict(f"Session {session_id!r} already exists") from exc
+                self._snapshot(session_id, 0, packed_state, rng)
+                self._db.execute("INSERT INTO profiles VALUES (?, ?)", (session_id, profile_json))
                 self._db.execute(
-                    "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO session_interfaces VALUES (?, ?, ?)",
                     (
                         session_id,
-                        model,
-                        implementation.version,
-                        encode(implementation.config),
-                        seed,
-                        session_id,
-                        None,
-                        None,
-                        0,
-                        encode(state),
-                        encode(rng.getstate()),
+                        encode(implementation.describe()),
+                        encode(implementation.visible(state)),
                     ),
                 )
-            except sqlite3.IntegrityError as exc:
-                raise Conflict(f"Session {session_id!r} already exists") from exc
-            self._snapshot(session_id, 0, state, rng)
-            self._db.execute("INSERT INTO profiles VALUES (?, ?)", (session_id, profile_json))
+                self._insert_artifacts(session_id, None, "state", stored)
+        except BaseException:
+            self._discard_artifacts(stored)
+            raise
         return Session(self, session_id)
 
     @staticmethod
@@ -195,8 +255,42 @@ class Lab:
 
     def session(self, session_id):
         with self._lock:
-            self._model(self._row(session_id))
+            self._row(session_id)
         return Session(self, session_id)
+
+    def _interface(self, session_id):
+        with self._lock:
+            interface = self._db.execute(
+                "SELECT * FROM session_interfaces WHERE session = ?", (session_id,)
+            ).fetchone()
+            if interface is None:
+                # Older databases acquire the public description once in the model environment.
+                model = self._model(self._row(session_id))
+                initial = self._db.execute(
+                    "SELECT state FROM snapshots WHERE session = ? AND revision = 0", (session_id,)
+                ).fetchone()
+                configuration = model.visible(self._materialize(json.loads(initial["state"])))
+                with self._transaction():
+                    self._db.execute(
+                        "INSERT OR IGNORE INTO session_interfaces VALUES (?, ?, ?)",
+                        (session_id, encode(model.describe()), encode(configuration)),
+                    )
+                interface = self._db.execute(
+                    "SELECT * FROM session_interfaces WHERE session = ?", (session_id,)
+                ).fetchone()
+            return interface
+
+    def describe_session(self, session_id):
+        return json.loads(self._interface(session_id)["description"])
+
+    def _configuration(self, session_id, revision, interface):
+        if revision == 0:
+            return json.loads(interface["initial_configuration"])
+        row = self._db.execute(
+            "SELECT result FROM operations WHERE session = ? AND revision = ?",
+            (session_id, revision),
+        ).fetchone()
+        return json.loads(row["result"])["configuration"]
 
     def _snapshot(self, session_id, revision, state, rng):
         self._db.execute(
@@ -210,10 +304,205 @@ class Lab:
         ).fetchone()
         return json.loads(row[0]) if row else {"source": "theory"}
 
+    def _stored_artifact(self, reference):
+        row = self._artifact_row(reference["$artifact"]["id"])
+        return StoredArtifact(
+            row["id"],
+            row["storage_key"],
+            row["media_type"],
+            row["encoding"],
+            row["size_bytes"],
+        )
+
+    def _store_value(self, value, *, previous=None):
+        prior = self._stored_artifact(previous) if is_reference(previous) else None
+        stored = self.artifact_store.put_json(value, previous=prior)
+        created = prior is None or stored.id != prior.id
+        return stored.reference(), stored if created else None
+
+    def _pack_nested(self, value, stored, memo, previous=None):
+        if is_reference(value):
+            return value
+        if isinstance(value, (dict, list)) and id(value) in memo:
+            return memo[id(value)]
+        if isinstance(value, dict):
+            if self.artifact_threshold is not None and json_size(value) >= self.artifact_threshold:
+                reference, item = self._store_value(value, previous=previous)
+                if item is not None:
+                    stored.append(item)
+                memo[id(value)] = reference
+                return reference
+            prior = previous if isinstance(previous, dict) and not is_reference(previous) else {}
+            return {
+                key: self._pack_nested(child, stored, memo, prior.get(key))
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            if self.artifact_threshold is not None and json_size(value) >= self.artifact_threshold:
+                reference, item = self._store_value(value, previous=previous)
+                if item is not None:
+                    stored.append(item)
+                memo[id(value)] = reference
+                return reference
+            prior = previous if isinstance(previous, list) else []
+            return [
+                self._pack_nested(
+                    child,
+                    stored,
+                    memo,
+                    prior[index] if index < len(prior) else None,
+                )
+                for index, child in enumerate(value)
+            ]
+        return value
+
+    def _pack_state(self, state, stored, memo, previous=None):
+        prior = previous if isinstance(previous, dict) else {}
+        packed = {
+            key: self._pack_nested(value, stored, memo, prior.get(key))
+            for key, value in state.items()
+        }
+        return packed
+
+    def _pack_observations(self, observations, stored, memo, previous):
+        packed = {}
+        for name, observation in observations.items():
+            if isinstance(observation, dict) and "value" in observation:
+                item = dict(observation)
+                value = item["value"]
+                if (
+                    self.artifact_threshold is not None
+                    and isinstance(value, (dict, list))
+                    and json_size(value) >= self.artifact_threshold
+                ):
+                    prior = previous.get(name)
+                    prior = prior.get("value") if isinstance(prior, dict) else None
+                    item["value"] = self._pack_nested(value, stored, memo, prior)
+                packed[name] = item
+            else:
+                packed[name] = self._pack_nested(observation, stored, memo, previous.get(name))
+        return packed
+
+    def _insert_artifacts(self, session_id, operation_id, role, stored):
+        if not stored:
+            return
+        now = time.time()
+        self._db.executemany(
+            """INSERT INTO artifacts (
+                id, session, operation_id, role, storage_key, media_type, encoding,
+                size_bytes, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    item.id,
+                    session_id,
+                    operation_id,
+                    role,
+                    item.storage_key,
+                    item.media_type,
+                    item.encoding,
+                    item.size_bytes,
+                    now,
+                )
+                for item in stored
+            ],
+        )
+
+    def _discard_artifacts(self, stored):
+        for item in stored:
+            self.artifact_store.discard(item.storage_key)
+
+    def _artifact_row(self, artifact_id):
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Unknown artifact {artifact_id!r}")
+            return row
+
+    def _materialize(self, value):
+        if is_reference(value):
+            artifact_id = value["$artifact"]["id"]
+            row = self._artifact_row(artifact_id)
+            with self.artifact_store.open(row["storage_key"]) as stream:
+                return self._materialize(json.load(stream))
+        if isinstance(value, dict):
+            return {key: self._materialize(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [self._materialize(child) for child in value]
+        return value
+
+    def artifact_info(self, artifact_id):
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            return {
+                "id": row["id"],
+                "uri": f"artifact://{row['id']}",
+                "session": row["session"],
+                "operation_id": row["operation_id"],
+                "role": row["role"],
+                "media_type": row["media_type"],
+                "encoding": row["encoding"],
+                "size_bytes": row["size_bytes"],
+            }
+
+    def read_artifact(self, artifact_id):
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            storage_key = row["storage_key"]
+        with self.artifact_store.open(storage_key) as stream:
+            return self._materialize(json.load(stream))
+
+    def read_artifact_chunk(self, artifact_id, *, offset=0, limit=65536):
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a nonnegative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1048576:
+            raise ValueError("limit must be between 1 and 1048576 bytes")
+        row = self._artifact_row(artifact_id)
+        if offset > row["size_bytes"]:
+            raise ValueError("offset is beyond the artifact")
+        with self.artifact_store.open(row["storage_key"]) as stream:
+            stream.seek(offset)
+            content = stream.read(limit)
+        end = offset + len(content)
+        return {
+            "id": artifact_id,
+            "offset": offset,
+            "next_offset": end,
+            "size_bytes": row["size_bytes"],
+            "eof": end == row["size_bytes"],
+            "data_base64": base64.b64encode(content).decode("ascii"),
+        }
+
+    def iter_artifact(self, artifact_id, *, chunk_size=65536):
+        if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
+            raise ValueError("chunk_size must be a positive integer")
+        with self._lock:
+            row = self._artifact_row(artifact_id)
+            storage_key = row["storage_key"]
+        with self.artifact_store.open(storage_key) as stream:
+            while chunk := stream.read(chunk_size):
+                yield chunk
+
+    def export_artifact(self, artifact_id, path):
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(destination.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            with temporary.open("wb") as stream:
+                for chunk in self.iter_artifact(artifact_id):
+                    stream.write(chunk)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {**self.artifact_info(artifact_id), "path": str(destination)}
+
     def status(self, session_id):
         with self._lock:
             row = self._row(session_id)
-            model = self._model(row)
+            interface = self._interface(session_id)
             state = json.loads(row["state"])
             return {
                 "session": row["id"],
@@ -226,7 +515,7 @@ class Lab:
                 "time_s": state["time_s"],
                 "source": "simulation",
                 "model_provenance": self._provenance(session_id),
-                "configuration": model.visible(state),
+                "configuration": self._configuration(session_id, row["revision"], interface),
             }
 
     def list_sessions(self):
@@ -269,10 +558,13 @@ class Lab:
         expected_revision = self._expected_revision(expected_revision)
         with self._lock:
             row = self._row(session_id)
-            model = self._model(row)
-            if action not in model.actions:
-                raise ValueError(f"Unknown action {action!r}; choose from {sorted(model.actions)}")
-            parsed = arguments(params, model.actions[action])
+            actions = self.describe_session(session_id)["actions"]
+            if action not in actions:
+                raise ValueError(f"Unknown action {action!r}; choose from {sorted(actions)}")
+            specification = {
+                name: Parameter.from_description(value) for name, value in actions[action].items()
+            }
+            parsed = arguments(params, specification)
         request = encode({"action": action, "parameters": parsed})
         now = time.time()
         with self._transaction():
@@ -285,16 +577,22 @@ class Lab:
                 if previous["request"] != request:
                     raise Conflict("Operation identifier already used for different parameters")
                 if previous["status"] == "failed":
+                    if expected_revision is not None and expected_revision != session["revision"]:
+                        raise Conflict(
+                            f"Expected revision {expected_revision}, found {session['revision']}"
+                        )
                     self._db.execute(
-                        """UPDATE operations SET status = 'pending', expected_revision = ?,
+                        """UPDATE operations SET
+                           sequence = (SELECT COALESCE(MAX(sequence), 0) + 1 FROM operations),
+                           status = 'pending', expected_revision = ?,
                            base_revision = NULL, revision = NULL, result = NULL, error = NULL,
-                           worker = NULL, claim_until = NULL, updated = ?
+                           worker = NULL, attempt = NULL, claim_until = NULL, updated = ?
                            WHERE sequence = ?""",
                         (expected_revision, now, previous["sequence"]),
                     )
                     previous = self._db.execute(
-                        "SELECT * FROM operations WHERE sequence = ?",
-                        (previous["sequence"],),
+                        "SELECT * FROM operations WHERE session = ? AND id = ?",
+                        (session_id, operation_id),
                     ).fetchone()
                 return self._operation_view(previous)
             if expected_revision is not None and expected_revision != session["revision"]:
@@ -314,19 +612,18 @@ class Lab:
             return self._operation_view(row)
 
     def _claim(self, worker_id, *, models=None, session_id=None, operation_id=None, lease=300.0):
-        if lease <= 0:
+        if not math.isfinite(lease) or lease <= 0:
             raise ValueError("lease must be positive")
         supported = tuple(available() if models is None else models)
         if not supported:
             return None
-        now = time.time()
         conditions = [
             "(o.status = 'pending' OR (o.status = 'running' AND o.claim_until < ?))",
             "NOT EXISTS (SELECT 1 FROM operations earlier WHERE earlier.session = o.session "
             "AND earlier.sequence < o.sequence AND earlier.status IN ('pending', 'running'))",
             f"s.model IN ({','.join('?' for _ in supported)})",
         ]
-        parameters = [now, *supported]
+        parameters = [0.0, *supported]
         if session_id is not None:
             conditions.append("o.session = ?")
             parameters.append(session_id)
@@ -342,6 +639,8 @@ class Lab:
                     WHERE {" AND ".join(conditions)}
                     ORDER BY o.sequence LIMIT 1"""
         with self._transaction():
+            now = time.time()
+            parameters[0] = now
             row = self._db.execute(query, parameters).fetchone()
             if row is None:
                 return None
@@ -362,14 +661,16 @@ class Lab:
                     (encode(error), now, row["sequence"]),
                 )
                 return {"failed": self.operation(row["session"], row["id"])}
+            attempt = uuid.uuid4().hex
             self._db.execute(
                 """UPDATE operations SET status = 'running', base_revision = ?, worker = ?,
-                   claim_until = ?, updated = ? WHERE sequence = ?""",
+                   claim_until = ?, updated = ?, attempt = ? WHERE sequence = ?""",
                 (
                     row["session_revision"],
                     worker_id,
                     now + lease,
                     now,
+                    attempt,
                     row["sequence"],
                 ),
             )
@@ -378,6 +679,7 @@ class Lab:
                 "session": row["session"],
                 "operation_id": row["id"],
                 "worker": worker_id,
+                "attempt": attempt,
                 "lease": lease,
                 "base_revision": row["session_revision"],
                 "model": row["model"],
@@ -391,13 +693,15 @@ class Lab:
             }
 
     def _extend_claim(self, task):
-        now = time.time()
         with self._transaction():
-            self._db.execute(
+            now = time.time()
+            updated = self._db.execute(
                 """UPDATE operations SET claim_until = ?, updated = ?
-                   WHERE sequence = ? AND status = 'running' AND worker = ?""",
-                (now + task["lease"], now, task["sequence"], task["worker"]),
+                   WHERE sequence = ? AND status = 'running' AND attempt = ?
+                   AND claim_until > ?""",
+                (now + task["lease"], now, task["sequence"], task["attempt"], now),
             )
+            return updated.rowcount == 1
 
     def _fail_task(self, task, error):
         now = time.time()
@@ -405,49 +709,78 @@ class Lab:
             self._db.execute(
                 """UPDATE operations SET status = 'failed', error = ?, worker = NULL,
                    claim_until = NULL, updated = ?
-                   WHERE sequence = ? AND status = 'running' AND worker = ?""",
-                (encode(error), now, task["sequence"], task["worker"]),
+                   WHERE sequence = ? AND status = 'running' AND attempt = ?""",
+                (encode(error), now, task["sequence"], task["attempt"]),
             )
 
     def _complete_task(self, task, state, rng, result):
-        now = time.time()
-        result_json = encode(result)
-        revision = task["base_revision"] + 1
-        with self._transaction():
-            operation = self._db.execute(
-                "SELECT status, worker FROM operations WHERE sequence = ?", (task["sequence"],)
-            ).fetchone()
-            if (
-                operation is None
-                or operation["status"] != "running"
-                or operation["worker"] != task["worker"]
-            ):
-                raise Conflict("Operation is no longer owned by this worker")
-            row = self._row(task["session"])
-            if row["revision"] != task["base_revision"]:
-                raise Conflict(
-                    f"Operation began at revision {task['base_revision']}, found {row['revision']}"
+        state_artifacts, observation_artifacts, memo = [], [], {}
+        try:
+            packed_state = self._pack_state(
+                state, state_artifacts, memo, previous=json.loads(task["state"])
+            )
+            with self._lock:
+                previous = self._db.execute(
+                    "SELECT result FROM operations WHERE session = ? AND revision = ?",
+                    (task["session"], task["base_revision"]),
+                ).fetchone()
+            observations = json.loads(previous["result"])["observations"] if previous else {}
+            result["observations"] = self._pack_observations(
+                result["observations"], observation_artifacts, memo, observations
+            )
+            result_json = encode(result)
+            revision = task["base_revision"] + 1
+            with self._transaction():
+                now = time.time()
+                operation = self._db.execute(
+                    "SELECT status, attempt FROM operations WHERE sequence = ?",
+                    (task["sequence"],),
+                ).fetchone()
+                if (
+                    operation is None
+                    or operation["status"] != "running"
+                    or operation["attempt"] != task["attempt"]
+                ):
+                    raise Conflict("Operation is no longer owned by this worker")
+                row = self._row(task["session"])
+                if row["revision"] != task["base_revision"]:
+                    raise Conflict(
+                        f"Operation began at revision {task['base_revision']}, "
+                        f"found {row['revision']}"
+                    )
+                self._db.execute(
+                    "UPDATE sessions SET state = ?, rng = ?, revision = ? WHERE id = ?",
+                    (encode(packed_state), encode(rng.getstate()), revision, task["session"]),
                 )
-            self._db.execute(
-                "UPDATE sessions SET state = ?, rng = ?, revision = ? WHERE id = ?",
-                (encode(state), encode(rng.getstate()), revision, task["session"]),
-            )
-            self._db.execute(
-                """UPDATE operations SET status = 'succeeded', revision = ?, result = ?,
-                   error = NULL, worker = NULL, claim_until = NULL, updated = ?
-                   WHERE sequence = ?""",
-                (revision, result_json, now, task["sequence"]),
-            )
-            self._snapshot(task["session"], revision, state, rng)
+                self._db.execute(
+                    """UPDATE operations SET status = 'succeeded', revision = ?, result = ?,
+                       error = NULL, worker = NULL, claim_until = NULL, updated = ?
+                       WHERE sequence = ?""",
+                    (revision, result_json, now, task["sequence"]),
+                )
+                self._snapshot(task["session"], revision, packed_state, rng)
+                self._insert_artifacts(
+                    task["session"], task["operation_id"], "state", state_artifacts
+                )
+                self._insert_artifacts(
+                    task["session"],
+                    task["operation_id"],
+                    "observation",
+                    observation_artifacts,
+                )
+        except BaseException:
+            self._discard_artifacts(state_artifacts + observation_artifacts)
+            raise
         return result
 
     def _execute(self, task):
         stop = threading.Event()
 
         def heartbeat():
-            interval = max(0.1, task["lease"] / 3.0)
+            interval = task["lease"] / 3.0
             while not stop.wait(interval):
-                self._extend_claim(task)
+                if not self._extend_claim(task):
+                    return
 
         pulse = threading.Thread(target=heartbeat, daemon=True)
         pulse.start()
@@ -458,11 +791,12 @@ class Lab:
                     f"Session needs {task['model']} model version {task['model_version']}"
                 )
             request = json.loads(task["request"])
-            state = json.loads(task["state"])
+            parameters = arguments(request["parameters"], model.actions[request["action"]])
+            state = self._materialize(json.loads(task["state"]))
             rng = random.Random()
             rng.setstate(tuples(json.loads(task["rng"])))
             start = state["time_s"]
-            observations = model.perform(state, rng, request["action"], request["parameters"])
+            observations = model.perform(state, rng, request["action"], parameters)
             if state["time_s"] < start:
                 raise ValueError("A model cannot move experiment time backwards")
             result = {
@@ -504,8 +838,10 @@ class Lab:
         return self.operation(claimed["session"], claimed["operation_id"])
 
     def wait_operation(self, session_id, operation_id, *, timeout=None, poll=0.02):
-        if timeout is not None and timeout < 0:
+        if timeout is not None and (not math.isfinite(timeout) or timeout < 0):
             raise ValueError("timeout must be nonnegative")
+        if not math.isfinite(poll) or poll <= 0:
+            raise ValueError("poll must be positive")
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             current = self.operation(session_id, operation_id)
@@ -550,16 +886,9 @@ class Lab:
 
     def fork(self, session_id, *, at_revision=None, session_id_new=None):
         identifier = self._identifier(session_id_new)
+        interface = self._interface(session_id)
         with self._transaction():
             row = self._row(session_id)
-            self._model(row)
-            active = self._db.execute(
-                """SELECT 1 FROM operations WHERE session = ?
-                   AND status IN ('pending', 'running') LIMIT 1""",
-                (session_id,),
-            ).fetchone()
-            if active is not None:
-                raise Conflict("Finish queued operations before forking this session")
             revision = row["revision"] if at_revision is None else at_revision
             if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
                 raise ValueError("at_revision must be a nonnegative integer")
@@ -594,6 +923,14 @@ class Lab:
             self._db.execute(
                 "INSERT INTO profiles VALUES (?, ?)",
                 (identifier, encode(self._provenance(session_id))),
+            )
+            self._db.execute(
+                "INSERT INTO session_interfaces VALUES (?, ?, ?)",
+                (
+                    identifier,
+                    interface["description"],
+                    encode(self._configuration(session_id, revision, interface)),
+                ),
             )
         return Session(self, identifier)
 
